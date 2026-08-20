@@ -68,6 +68,7 @@ import {
 	stopAll as stopAllBackground
 } from "./background.svelte";
 import { activity, detectOnce, encodeActivity, loadActivity, resetActivity } from "./activity.svelte";
+import { hangUp, watchForCalls } from "./call.svelte";
 import { loadProfile, profile, resetProfile, saveExtras } from "./profile.svelte";
 import { flush, loadScheduled } from "./scheduled.svelte";
 import { refreshStatus, reset as resetVerification, watchForRequests } from "./verification.svelte";
@@ -284,6 +285,9 @@ export async function signOutAccount(key: string): Promise<void> {
 
 /** Stop syncing and detach, without touching stored sessions. */
 function clearForegroundState(): void {
+	// A call belongs to one account's connection; leaving it running while the
+	// client goes away would leave audio with nothing behind it.
+	hangUp();
 	resetVerification();
 	resetProfile();
 	resetActivity();
@@ -480,6 +484,14 @@ async function connect(session: StoredSession): Promise<void> {
 	// Verification state, and a listener so a request started from another
 	// client (Element on a phone, say) surfaces here rather than being missed.
 	detachers.push(watchForRequests(client));
+	detachers.push(watchForCalls(client));
+
+	/*
+	 * TURN relays the media when both ends are behind NAT that will not let
+	 * them talk directly. Most homeservers hand one out; some do not, and a
+	 * call that silently never connects is worth warning about in advance.
+	 */
+	void client.checkTurnServers().catch(() => undefined);
 	void refreshStatus(client);
 	void loadProfile(client);
 	// Device trust arrives asynchronously after sync; re-read when it changes

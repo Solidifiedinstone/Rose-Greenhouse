@@ -156,8 +156,14 @@ export async function confirmMatch(): Promise<void> {
 	try {
 		await sas.confirm();
 	} catch (error) {
+		/*
+		 * Confirming only queues our half. The exchange is not finished until
+		 * the other side confirms too, and `verifier.verify()` is what reports
+		 * that — so a failure here is reported with what it actually was
+		 * rather than a bare "verification failed".
+		 */
 		verify.stage = "error";
-		verify.error = message(error);
+		verify.error = `Sending your confirmation failed: ${message(error)}`;
 	}
 }
 
@@ -289,16 +295,27 @@ function hookVerifier(current: VerificationRequest): void {
 	if (drivenVerifier === verifier) return;
 	drivenVerifier = verifier;
 
-	const existing = verifier.getShowSasCallbacks();
-	if (existing) show(existing);
-
+	/*
+	 * Subscribe first, and only fall back to the getter if no event arrives.
+	 *
+	 * Doing both meant `sas` could end up holding a *different* callbacks
+	 * object than the live one, and `confirm()` on a stale object fails the
+	 * moment it is pressed — before the other side has done anything, which is
+	 * exactly what it looked like.
+	 */
 	verifier.on(VerifierEvent.ShowSas, show);
+	const existing = verifier.getShowSasCallbacks();
+	if (existing && !sas) show(existing);
 	// The verifier only produces the SAS once it is driven, and this resolves
 	// when the whole exchange finishes.
 	verifier.verify().catch((error: unknown) => {
 		if (verify.stage === "done" || verify.stage === "cancelled") return;
 		verify.stage = "error";
-		verify.error = message(error);
+		// The cancellation code is the useful part — "m.user" means somebody
+		// pressed cancel, "m.mismatched_sas" means the emoji differed, and
+		// "m.timeout" means nobody answered. A bare message hides all of that.
+		const code = request?.cancellationCode;
+		verify.error = code ? `${message(error)} (${code})` : message(error);
 	});
 }
 

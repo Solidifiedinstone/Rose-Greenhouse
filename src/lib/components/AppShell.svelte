@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Avatar from "./Avatar.svelte";
 	import RoseMark from "./RoseMark.svelte";
+	import CallPanel from "./CallPanel.svelte";
 	import Composer from "./Composer.svelte";
 	import MemberList from "./MemberList.svelte";
 	import SearchPanel from "./SearchPanel.svelte";
@@ -16,6 +17,8 @@
 	import Timeline from "./Timeline.svelte";
 	import { openRoom, sendFiles, mx, threadView } from "$lib/matrix/client.svelte";
 	import { verify } from "$lib/matrix/verification.svelte";
+	import { call, callSupported, placeCall } from "$lib/matrix/call.svelte";
+	import { getClient } from "$lib/matrix/client.svelte";
 	import type { MessageView } from "$lib/matrix/views";
 	import { PRESENCE_COLOURS, profile } from "$lib/matrix/profile.svelte";
 
@@ -78,6 +81,16 @@
 		replyTo = null;
 	});
 	const spaces = $derived(mx.rooms.filter((room) => room.isSpace));
+
+	/*
+	 * Calls are one-to-one only.
+	 *
+	 * Matrix's original VoIP is a direct peer connection between two ends, so
+	 * a third person has nowhere to go. Group calls are a different protocol
+	 * needing a media server, so the buttons are disabled with a reason rather
+	 * than offered and then failing.
+	 */
+	const oneToOne = $derived(mx.members.filter((m) => m.membership === "join").length === 2);
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -189,6 +202,20 @@
 				{#if activeRoom.isEncrypted}
 					<span class="tag" title="End-to-end encrypted">🔒 Encrypted</span>
 				{/if}
+				{#if callSupported(getClient())}
+					<button
+						class="header-button"
+						title={oneToOne ? "Voice call" : "Calls need a room with exactly two people"}
+						disabled={!oneToOne || call.phase !== "idle"}
+						onclick={() => placeCall(getClient(), activeRoom.id, activeRoom.name, false)}
+					>☎</button>
+					<button
+						class="header-button"
+						title={oneToOne ? "Video call" : "Calls need a room with exactly two people"}
+						disabled={!oneToOne || call.phase !== "idle"}
+						onclick={() => placeCall(getClient(), activeRoom.id, activeRoom.name, true)}
+					>🎥</button>
+				{/if}
 				<button class="header-button" title="Search (Ctrl+F)" onclick={() => (searchOpen = true)}>
 					⌕
 				</button>
@@ -201,6 +228,10 @@
 					{mx.members.length || ""} ☰
 				</button>
 			</header>
+
+			{#if call.phase !== "idle" && call.roomId === activeRoom.id}
+				<CallPanel />
+			{/if}
 
 			<Timeline
 				onuser={(userId) => (viewingUser = userId)}
