@@ -36,6 +36,7 @@ import {
 import { SHAPE_LIMITS } from "../src/lib/theme/shape";
 import { PRESENCE_COLOURS, PRESENCE_LABELS } from "../src/lib/matrix/profile.svelte";
 import { formatMinutes, inQuietHours, previewFor } from "../src/lib/matrix/notify.svelte";
+import { dueNow, type Scheduled } from "../src/lib/matrix/scheduled.svelte";
 import { parseRoomTarget, stripReplyFallback } from "../src/lib/matrix/client.svelte";
 import {
 	EMPTY_EXTRAS,
@@ -245,6 +246,34 @@ describe("notifications", () => {
 			getContent: () => ({ body: "x".repeat(400) })
 		} as never);
 		expect(long.length).toBeLessThanOrEqual(140);
+	});
+});
+
+describe("scheduled messages", () => {
+	const entry = (partial: Partial<Scheduled> & { id: string }): Scheduled => ({
+		roomId: "!r:example.org",
+		roomName: "Room",
+		body: "hello",
+		sendAt: null,
+		createdAt: 0,
+		error: "",
+		...partial
+	});
+
+	it("treats a null time as due immediately — that is 'next time I'm online'", () => {
+		expect(dueNow([entry({ id: "a" })], 1000)).toHaveLength(1);
+	});
+
+	it("waits for a future time", () => {
+		expect(dueNow([entry({ id: "a", sendAt: 5000 })], 1000)).toHaveLength(0);
+		expect(dueNow([entry({ id: "a", sendAt: 5000 })], 5000)).toHaveLength(1);
+		expect(dueNow([entry({ id: "a", sendAt: 5000 })], 9000)).toHaveLength(1);
+	});
+
+	it("never retries something that already failed", () => {
+		// Otherwise a message a server keeps refusing would be sent at it in a
+		// loop, forever, every twenty seconds.
+		expect(dueNow([entry({ id: "a", error: "refused" })], 9000)).toHaveLength(0);
 	});
 });
 

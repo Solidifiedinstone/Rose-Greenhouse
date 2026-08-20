@@ -2,6 +2,7 @@
 	import { describe, sendFiles, sendMessage, sendReply, mx } from "$lib/matrix/client.svelte";
 	import type { MessageView } from "$lib/matrix/views";
 	import { hasMarkdown, renderMarkdown } from "$lib/matrix/markdown";
+	import { schedule, scheduledFor, unschedule } from "$lib/matrix/scheduled.svelte";
 
 	interface Props {
 		roomName: string;
@@ -19,6 +20,40 @@
 	let box: HTMLTextAreaElement | null = $state(null);
 	let picker: HTMLInputElement | null = $state(null);
 	let preview = $state(false);
+	let scheduling = $state(false);
+	let when = $state("");
+
+	const pending = $derived(mx.activeRoomId ? scheduledFor(mx.activeRoomId) : []);
+
+	function scheduleIt() {
+		const text = draft.trim();
+		if (!text || !mx.activeRoomId) return;
+		// An empty time means "next time I'm online", which is a real choice
+		// rather than an error.
+		const at = when ? new Date(when).getTime() : null;
+		if (at !== null && !Number.isFinite(at)) return;
+
+		schedule({
+			roomId: mx.activeRoomId,
+			roomName,
+			body: text,
+			sendAt: at
+		});
+		draft = "";
+		when = "";
+		scheduling = false;
+		resize();
+	}
+
+	function whenLabel(sendAt: number | null): string {
+		if (sendAt === null) return "when next online";
+		return new Date(sendAt).toLocaleString(undefined, {
+			day: "numeric",
+			month: "short",
+			hour: "2-digit",
+			minute: "2-digit"
+		});
+	}
 
 	const formatted = $derived(hasMarkdown(draft) ? renderMarkdown(draft) : "");
 
@@ -97,6 +132,33 @@
 		<div class="preview selectable">{@html formatted}</div>
 	{/if}
 
+	{#if pending.length}
+		<div class="pending">
+			{#each pending as entry (entry.id)}
+				<div class="pending-row" class:failed={entry.error}>
+					<span class="pending-when">{whenLabel(entry.sendAt)}</span>
+					<span class="pending-body">{entry.body}</span>
+					{#if entry.error}<span class="pending-error">{entry.error}</span>{/if}
+					<button class="pending-cancel" title="Cancel" onclick={() => unschedule(entry.id)}>
+						×
+					</button>
+				</div>
+			{/each}
+		</div>
+	{/if}
+
+	{#if scheduling}
+		<div class="schedule-bar">
+			<span>Send</span>
+			<input type="datetime-local" bind:value={when} />
+			<span class="dim">{when ? "" : "— leave empty for next time you're online"}</span>
+			<button class="button" onclick={() => (scheduling = false)}>Cancel</button>
+			<button class="button primary" onclick={scheduleIt} disabled={!draft.trim()}>
+				Schedule
+			</button>
+		</div>
+	{/if}
+
 	<div class="row">
 		<input
 			type="file"
@@ -126,6 +188,16 @@
 			placeholder={`Message ${roomName}`}
 			disabled={mx.phase !== "ready"}
 		></textarea>
+		<button
+			class="button"
+			class:on={scheduling}
+			title="Send later"
+			aria-label="Send later"
+			onclick={() => (scheduling = !scheduling)}
+			disabled={mx.phase !== "ready"}
+		>
+			🕑
+		</button>
 		{#if formatted}
 			<button
 				class="button"
@@ -254,6 +326,80 @@
 	.button.on {
 		border-color: var(--accent);
 		color: var(--accent);
+	}
+
+	.pending {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		margin-bottom: 8px;
+	}
+
+	.pending-row {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		padding: 4px 9px;
+		border-radius: var(--radius);
+		border: var(--border-width, 1px) dashed var(--border-strong);
+		font-size: 11px;
+	}
+
+	.pending-row.failed {
+		border-color: var(--danger);
+	}
+
+	.pending-when {
+		flex: none;
+		color: var(--accent);
+	}
+
+	.pending-body {
+		flex: 1;
+		min-width: 0;
+		color: var(--text-dim);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.pending-error {
+		flex: none;
+		color: var(--danger);
+	}
+
+	.pending-cancel {
+		flex: none;
+		color: var(--text-faint);
+		font-size: 14px;
+		line-height: 1;
+	}
+
+	.pending-cancel:hover {
+		color: var(--danger);
+	}
+
+	.schedule-bar {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 8px;
+		padding: 7px 9px;
+		border-radius: var(--radius);
+		background: var(--raised);
+		font-size: 12px;
+	}
+
+	.schedule-bar input {
+		width: auto;
+		font-size: 12px;
+		padding: 4px 6px;
+	}
+
+	.schedule-bar .dim {
+		flex: 1;
+		color: var(--text-faint);
+		font-size: 11px;
 	}
 
 	.attach {

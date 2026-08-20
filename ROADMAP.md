@@ -50,6 +50,9 @@ that only look like they work.
 - Tray icon with the unread count in its tooltip, and a menu to reopen or quit
 - Threads — a reply count on the root, and a side panel for the conversation,
   so a long thread never floods the room
+- **Scheduled messages** — send at a time, or the next time you're online.
+  Local-only, and the UI says so: Matrix has no server-side scheduling, so
+  nothing sends while the app is closed
 - **Quiet hours** — notifications are held, not dropped, and released as one
   summary when the window ends
 - Desktop notifications driven by your Matrix push rules, per-room mute as a
@@ -80,7 +83,6 @@ The reasons to use this over Element.
 
 - **Recovery-key restore**, for verifying when this is your only session
 - **Local-first search** over your own history, with no server-side index
-- **Scheduled messages** — write now, send at a time, or when next online
 - **Activity status** — Discord-style presence. Greenhouse-to-Greenhouse via a
   custom account-data event; degrades to plain Matrix presence for everyone else
 - **Meshtastic** — chat over LoRa when there's no internet. A separate

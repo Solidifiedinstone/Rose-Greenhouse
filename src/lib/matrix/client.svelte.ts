@@ -57,6 +57,7 @@ import {
 } from "./notify.svelte";
 import { hasMarkdown, renderMarkdown } from "./markdown";
 import { loadProfile, resetProfile } from "./profile.svelte";
+import { flush, loadScheduled } from "./scheduled.svelte";
 import { refreshStatus, reset as resetVerification, watchForRequests } from "./verification.svelte";
 import { forgetAttachments, sendFile } from "./upload.svelte";
 import {
@@ -403,6 +404,14 @@ async function connect(session: StoredSession): Promise<void> {
 		if (!inQuietHours(notifications.quiet)) void releaseHeld();
 	}, 60_000);
 	detachers.push(() => clearInterval(quietTimer));
+
+	// Scheduled messages: the queue is local, so something has to notice when
+	// one comes due. Flushed once on connect too, which is what makes "send
+	// next time I'm online" mean anything.
+	loadScheduled();
+	void flushScheduled();
+	const scheduleTimer = setInterval(() => void flushScheduled(), 20_000);
+	detachers.push(() => clearInterval(scheduleTimer));
 
 	// Verification state, and a listener so a request started from another
 	// client (Element on a phone, say) surfaces here rather than being missed.
@@ -1665,6 +1674,35 @@ export async function sendThreadMessage(body: string): Promise<void> {
 			: {})
 	} as never);
 	rebuildThread();
+}
+
+/**
+ * Send whatever is due.
+ *
+ * Only while synced: firing a queued message into a client that has not
+ * finished its first sync risks sending into a room whose encryption state we
+ * have not seen yet.
+ */
+async function flushScheduled(): Promise<void> {
+	if (!client || mx.phase !== "ready") return;
+	await flush(async (roomId, body) => {
+		await sendToRoom(roomId, body);
+	});
+}
+
+/** Send a plain or formatted message to a specific room. */
+async function sendToRoom(roomId: string, body: string): Promise<void> {
+	if (!client) throw new Error("Not connected.");
+	if (hasMarkdown(body)) {
+		await client.sendMessage(roomId, {
+			msgtype: MsgType.Text,
+			body,
+			format: "org.matrix.custom.html",
+			formatted_body: renderMarkdown(body)
+		} as never);
+	} else {
+		await client.sendTextMessage(roomId, body);
+	}
 }
 
 export async function sendMessage(body: string): Promise<void> {
