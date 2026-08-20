@@ -18,7 +18,17 @@
 	let { onclose }: Props = $props();
 
 	function close() {
-		if (verify.stage !== "done") void cancel();
+		/*
+		 * Only cancel an exchange that is still alive.
+		 *
+		 * Cancelling one that already finished or already failed sends a
+		 * cancellation for a dead request, which the *other* device then
+		 * reports as a failure — so closing this dialog after an error made it
+		 * look like both ends broke.
+		 */
+		const finished = verify.stage === "done" || verify.stage === "cancelled";
+		const failed = verify.stage === "error";
+		if (!finished && !failed) void cancel();
 		else reset();
 		onclose();
 	}
