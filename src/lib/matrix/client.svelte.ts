@@ -30,6 +30,7 @@ import {
 	RoomMemberEvent,
 	SyncState,
 	type ICreateClientOpts,
+	type ReceiptType,
 	type MatrixClient
 } from "matrix-js-sdk";
 
@@ -92,7 +93,9 @@ export const mx = $state({
 	/** Rooms hidden from this device's sidebar. */
 	hidden: [] as string[],
 	/** Users blocked account-wide. */
-	ignored: [] as string[]
+	ignored: [] as string[],
+	/** True when read receipts are private by default. */
+	receiptsOff: false
 });
 
 /** The live client. Never reactive — see rule 2. */
@@ -259,6 +262,7 @@ async function connect(session: StoredSession): Promise<void> {
 	mx.hidden = readHidden();
 	mx.ignored = client.getIgnoredUsers();
 	loadNotificationPrefs();
+	mx.receiptsOff = receiptPrefs().off;
 
 	// Verification state, and a listener so a request started from another
 	// client (Element on a phone, say) surfaces here rather than being missed.
@@ -468,22 +472,59 @@ function queueMicrotaskOrFrame(run: () => void): void {
 	}
 }
 
+/**
+ * Which spaces each room belongs to.
+ *
+ * Built once per rebuild rather than per room: a space lists its children as
+ * `m.space.child` state events, so asking "which spaces contain this room?"
+ * the other way round would mean walking every space for every room.
+ */
+function spaceMembership(rooms: Room[]): Map<string, string[]> {
+	const map = new Map<string, string[]>();
+	for (const room of rooms) {
+		const creation = room.currentState.getStateEvents(EventType.RoomCreate, "");
+		if (creation?.getContent()?.type !== "m.space") continue;
+
+		for (const child of room.currentState.getStateEvents("m.space.child")) {
+			const childId = child.getStateKey();
+			// A child event with no `via` has been removed from the space; the
+			// event stays as a tombstone and must not still count as membership.
+			const via = child.getContent()?.via;
+			if (!childId || !Array.isArray(via) || !via.length) continue;
+
+			const existing = map.get(childId);
+			if (existing) existing.push(room.roomId);
+			else map.set(childId, [room.roomId]);
+		}
+	}
+	return map;
+}
+
 function rebuildRooms(): void {
 	if (!client) return;
 	const views: RoomView[] = [];
 
+	const all = client.getRooms();
+	const spaces = spaceMembership(all);
+
 	const hidden = new Set(mx.hidden);
-	for (const room of client.getRooms()) {
+	for (const room of all) {
 		const membership = room.getMyMembership();
 		if (membership === "leave") continue;
 		if (hidden.has(room.roomId)) continue;
 
-		views.push(roomToView(room));
+		views.push(roomToView(room, spaces.get(room.roomId) ?? []));
 	}
 	mx.rooms = sortRooms(views);
+
+	// A space you have left, or that no longer exists, must not keep filtering
+	// the list — that would leave an empty sidebar with no way back.
+	if (mx.activeSpaceId && !views.some((room) => room.id === mx.activeSpaceId)) {
+		mx.activeSpaceId = null;
+	}
 }
 
-function roomToView(room: Room): RoomView {
+function roomToView(room: Room, spaceIds: string[]): RoomView {
 	const membership = room.getMyMembership();
 	const lastEvent = lastMessageEvent(room);
 	const creation = room.currentState.getStateEvents(EventType.RoomCreate, "");
@@ -502,7 +543,7 @@ function roomToView(room: Room): RoomView {
 		highlights: room.getUnreadNotificationCount(NotificationCountType.Highlight) ?? 0,
 		lastActivity: lastEvent?.getTs() ?? room.getLastActiveTimestamp() ?? 0,
 		preview: lastEvent ? previewOf(lastEvent) : "",
-		spaceIds: [],
+		spaceIds,
 		membership: (membership as RoomView["membership"]) ?? "unknown"
 	};
 }
@@ -689,6 +730,45 @@ export async function searchDirectory(
 		mx.error = describe(error);
 		return [];
 	}
+}
+
+/**
+ * Every version a message has had.
+ *
+ * Possible only because a Matrix edit is a *replacement event* rather than a
+ * mutation: the original and each revision all still exist, so showing the
+ * history is reading what is already there rather than keeping a private log.
+ *
+ * Newest first. Returns an empty array when nothing was ever edited.
+ */
+export function editHistory(eventId: string): { body: string; timestamp: number }[] {
+	if (!client || !mx.activeRoomId) return [];
+	const room = client.getRoom(mx.activeRoomId);
+	const original = room?.findEventById(eventId);
+	if (!room || !original) return [];
+
+	const edits = room
+		.getUnfilteredTimelineSet()
+		.relations.getChildEventsForEvent(eventId, "m.replace", EventType.RoomMessage);
+	const versions = edits?.getRelations() ?? [];
+	if (!versions.length) return [];
+
+	const out = versions
+		.filter((event) => !event.isRedacted())
+		.map((event) => {
+			const content = event.getContent() as Record<string, unknown>;
+			const replacement = (content["m.new_content"] ?? content) as { body?: unknown };
+			return {
+				body: String(replacement.body ?? "").replace(/^\* /, ""),
+				timestamp: event.getTs()
+			};
+		});
+
+	out.push({
+		body: stripReplyFallback(String(original.getOriginalContent().body ?? "")),
+		timestamp: original.getTs()
+	});
+	return out.sort((a, b) => b.timestamp - a.timestamp);
 }
 
 // ── Search ───────────────────────────────────────────────────────
@@ -1375,6 +1455,58 @@ export async function loadMore(): Promise<void> {
 	}
 }
 
+/*
+ * Read receipts, and choosing not to send them.
+ *
+ * Matrix has a private receipt (`m.read.private`): the server still records
+ * where you have read to, so unread counts and the read marker keep working,
+ * but it is not broadcast to the room. That is the honest way to do "read
+ * without announcing it" — the alternative, sending nothing at all, breaks
+ * your own unread badges as collateral.
+ */
+const RECEIPTS_KEY = "greenhouse.receipts";
+
+function receiptPrefs(): { off: boolean; rooms: Record<string, boolean> } {
+	if (typeof localStorage === "undefined") return { off: false, rooms: {} };
+	try {
+		const raw = JSON.parse(localStorage.getItem(RECEIPTS_KEY) ?? "{}");
+		return {
+			off: raw?.off === true,
+			rooms: raw?.rooms && typeof raw.rooms === "object" ? raw.rooms : {}
+		};
+	} catch {
+		return { off: false, rooms: {} };
+	}
+}
+
+function writeReceiptPrefs(prefs: { off: boolean; rooms: Record<string, boolean> }): void {
+	if (typeof localStorage === "undefined") return;
+	localStorage.setItem(RECEIPTS_KEY, JSON.stringify(prefs));
+	mx.receiptsOff = prefs.off;
+}
+
+/** True when this room should use a private receipt. */
+export function receiptsPrivate(roomId: string): boolean {
+	const prefs = receiptPrefs();
+	// A per-room choice wins over the global default, in both directions.
+	if (roomId in prefs.rooms) return prefs.rooms[roomId];
+	return prefs.off;
+}
+
+export function setGlobalReceipts(send: boolean): void {
+	const prefs = receiptPrefs();
+	prefs.off = !send;
+	writeReceiptPrefs(prefs);
+}
+
+export function setRoomReceipts(roomId: string, send: boolean): void {
+	const prefs = receiptPrefs();
+	const globalSends = !prefs.off;
+	if (send === globalSends) delete prefs.rooms[roomId];
+	else prefs.rooms[roomId] = !send;
+	writeReceiptPrefs(prefs);
+}
+
 function markRead(roomId: string): void {
 	if (!client) return;
 	const room = client.getRoom(roomId);
@@ -1382,9 +1514,15 @@ function markRead(roomId: string): void {
 	const events = room.getLiveTimeline().getEvents();
 	const last = events[events.length - 1];
 	if (!last) return;
+
+	const type = receiptsPrivate(roomId)
+		? ("m.read.private" as ReceiptType)
+		: ("m.read" as ReceiptType);
 	// Failing to send a read receipt is not worth telling anyone about, but it
 	// is worth not pretending it succeeded.
-	client.sendReadReceipt(last).catch((error) => console.warn("read receipt failed", error));
+	client
+		.sendReadReceipt(last, type)
+		.catch((error) => console.warn("read receipt failed", error));
 }
 
 /** Turn an `mxc://` URI into something an `<img>` can load. */

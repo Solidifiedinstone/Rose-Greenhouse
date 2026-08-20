@@ -104,6 +104,16 @@
 		<div class="rail-divider"></div>
 
 		<div class="rail-scroll">
+			{#if spaces.length}
+				<button
+					class="rail-button"
+					class:active={mx.activeSpaceId === null}
+					title="All rooms"
+					onclick={() => (mx.activeSpaceId = null)}
+				>
+					<span class="all-rooms">All</span>
+				</button>
+			{/if}
 			{#each spaces as space (space.id)}
 				<button
 					class="rail-button"
@@ -355,6 +365,12 @@
 		height: 12px;
 		border-radius: 50%;
 		border: 2px solid var(--rail);
+	}
+
+	.all-rooms {
+		font-size: 11px;
+		font-weight: var(--bold-weight, 700);
+		letter-spacing: 0.5px;
 	}
 
 	.rail-divider {

@@ -13,7 +13,9 @@
 		mx,
 		openRoom,
 		otherMemberOf,
+		receiptsPrivate,
 		roomMuted,
+		setRoomReceipts,
 		unblockUser,
 		unhideAll
 	} from "$lib/matrix/client.svelte";
@@ -74,6 +76,15 @@
 					? "Notifications from this room resume, here and on your other devices."
 					: "No notifications from this room, on any device you're signed into.",
 				run: () => void muteRoom(room.id, !muted)
+			},
+			{
+				label: receiptsPrivate(room.id)
+					? "Send read receipts here"
+					: "Read privately here",
+				detail: receiptsPrivate(room.id)
+					? "Others will see when you've read this room again."
+					: "Your read position still syncs to you, but nobody else is told.",
+				run: () => setRoomReceipts(room.id, receiptsPrivate(room.id))
 			},
 			{ separator: true },
 			{
@@ -146,8 +157,11 @@
 	const visible = $derived.by(() => {
 		const needle = filter.trim().toLowerCase();
 		return mx.rooms.filter((room) => {
+			// A space is a container, not a conversation — it belongs in the
+			// rail, never in the room list.
 			if (room.isSpace) return false;
 			if (needle && !room.name.toLowerCase().includes(needle)) return false;
+			if (mx.activeSpaceId && !room.spaceIds.includes(mx.activeSpaceId)) return false;
 			return true;
 		});
 	});
@@ -220,7 +234,13 @@
 			</button>
 		{:else}
 			<p class="empty faint">
-				{filter.trim() ? "Nothing matches that." : "No rooms yet."}
+				{#if filter.trim()}
+					Nothing matches that.
+				{:else if mx.activeSpaceId}
+					Nothing in this space yet — or its rooms haven't synced.
+				{:else}
+					No rooms yet.
+				{/if}
 			</p>
 		{/each}
 

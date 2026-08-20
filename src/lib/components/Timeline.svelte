@@ -4,6 +4,7 @@
 	import Avatar from "./Avatar.svelte";
 	import { deleteMessage, editMessage, loadMore, mx, toggleReaction } from "$lib/matrix/client.svelte";
 	import ConfirmDialog from "./ConfirmDialog.svelte";
+	import EditHistory from "./EditHistory.svelte";
 	import { uploads } from "$lib/matrix/upload.svelte";
 	import { formatTimestamp, type MessageView } from "$lib/matrix/views";
 	import { renderMarkdown } from "$lib/matrix/markdown";
@@ -22,6 +23,7 @@
 	/** The message being edited inline, and the text so far. */
 	let editing: { id: string; draft: string } | null = $state(null);
 	let deleting: MessageView | null = $state(null);
+	let history: string | null = $state(null);
 
 	function beginEdit(message: MessageView) {
 		editing = { id: message.id, draft: message.body };
@@ -190,7 +192,11 @@
 					<p class="body" class:notice={message.kind === "notice"}>{message.body}</p>
 				{/if}
 
-				{#if message.edited}<span class="edited faint">(edited)</span>{/if}
+				{#if message.edited}
+					<button class="edited link" onclick={() => (history = message.id)} title="See versions">
+						(edited)
+					</button>
+				{/if}
 				{#if message.failed}<span class="edited failed-note">not sent</span>{/if}
 
 				{#if message.reactions.length}
@@ -257,6 +263,10 @@
 	{:else}
 		<p class="status faint">No messages here yet. Say something.</p>
 	{/each}
+
+	{#if history}
+		<EditHistory eventId={history} onclose={() => (history = null)} />
+	{/if}
 
 	{#if deleting}
 		<ConfirmDialog
@@ -597,6 +607,15 @@
 	.edited {
 		font-size: 11px;
 		margin-left: 6px;
+	}
+
+	.edited.link {
+		color: var(--text-faint);
+	}
+
+	.edited.link:hover {
+		color: var(--accent);
+		text-decoration: underline;
 	}
 
 	.upload {
