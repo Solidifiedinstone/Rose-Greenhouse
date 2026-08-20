@@ -2,7 +2,12 @@
 	import { logout, mx, setGlobalReceipts, unblockUser } from "$lib/matrix/client.svelte";
 	import { verify } from "$lib/matrix/verification.svelte";
 	import ThemeEditor from "./ThemeEditor.svelte";
-	import { notifications, setNotificationsEnabled } from "$lib/matrix/notify.svelte";
+	import {
+		formatMinutes,
+		notifications,
+		setNotificationsEnabled,
+		setQuietHours
+	} from "$lib/matrix/notify.svelte";
 	import { PRESENCE_LABELS, profile } from "$lib/matrix/profile.svelte";
 
 	interface Props {
@@ -76,6 +81,48 @@
 				/>
 				<span>Desktop notifications</span>
 			</label>
+			<label class="toggle">
+				<input
+					type="checkbox"
+					checked={notifications.quiet.enabled}
+					onchange={(event) =>
+						setQuietHours({ ...notifications.quiet, enabled: event.currentTarget.checked })}
+				/>
+				<span>Quiet hours</span>
+			</label>
+			{#if notifications.quiet.enabled}
+				<div class="quiet">
+					<label>
+						<span>From</span>
+						<input
+							type="time"
+							value={formatMinutes(notifications.quiet.from)}
+							onchange={(event) => {
+								const [h, m] = event.currentTarget.value.split(":").map(Number);
+								setQuietHours({ ...notifications.quiet, from: h * 60 + m });
+							}}
+						/>
+					</label>
+					<label>
+						<span>To</span>
+						<input
+							type="time"
+							value={formatMinutes(notifications.quiet.to)}
+							onchange={(event) => {
+								const [h, m] = event.currentTarget.value.split(":").map(Number);
+								setQuietHours({ ...notifications.quiet, to: h * 60 + m });
+							}}
+						/>
+					</label>
+				</div>
+				<p class="dim small">
+					Notifications are held, not dropped — you get one summary when quiet
+					hours end.
+					{#if notifications.held.length}
+						<strong>{notifications.held.length} waiting.</strong>
+					{/if}
+				</p>
+			{/if}
 			<p class="dim small">
 				What counts as notifiable comes from your Matrix push rules, so it
 				matches Element and your phone. Mute a single room by right-clicking
@@ -214,6 +261,26 @@
 
 	.toggle input {
 		width: auto;
+	}
+
+	.quiet {
+		display: flex;
+		gap: 16px;
+		margin: 4px 0 8px 24px;
+	}
+
+	.quiet label {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 12px;
+		color: var(--text-dim);
+	}
+
+	.quiet input {
+		width: auto;
+		padding: 4px 6px;
+		font-size: 12px;
 	}
 
 	.blocked {

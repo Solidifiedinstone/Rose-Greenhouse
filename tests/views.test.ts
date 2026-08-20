@@ -35,7 +35,7 @@ import {
 } from "../src/lib/theme/tokens";
 import { SHAPE_LIMITS } from "../src/lib/theme/shape";
 import { PRESENCE_COLOURS, PRESENCE_LABELS } from "../src/lib/matrix/profile.svelte";
-import { previewFor } from "../src/lib/matrix/notify.svelte";
+import { formatMinutes, inQuietHours, previewFor } from "../src/lib/matrix/notify.svelte";
 import { parseRoomTarget, stripReplyFallback } from "../src/lib/matrix/client.svelte";
 import {
 	EMPTY_EXTRAS,
@@ -244,6 +244,39 @@ describe("notifications", () => {
 			getContent: () => ({ body: "x".repeat(400) })
 		} as never);
 		expect(long.length).toBeLessThanOrEqual(140);
+	});
+});
+
+describe("quiet hours", () => {
+	const at = (h: number, m = 0) => new Date(2026, 0, 1, h, m);
+
+	it("is off unless enabled", () => {
+		expect(inQuietHours({ enabled: false, from: 0, to: 24 * 60 - 1 }, at(3))).toBe(false);
+	});
+
+	it("handles a window inside one day", () => {
+		const quiet = { enabled: true, from: 9 * 60, to: 17 * 60 };
+		expect(inQuietHours(quiet, at(12))).toBe(true);
+		expect(inQuietHours(quiet, at(8))).toBe(false);
+		expect(inQuietHours(quiet, at(17))).toBe(false);
+	});
+
+	it("handles a window that wraps past midnight, which is the usual case", () => {
+		const quiet = { enabled: true, from: 23 * 60, to: 7 * 60 };
+		expect(inQuietHours(quiet, at(23, 30))).toBe(true);
+		expect(inQuietHours(quiet, at(2))).toBe(true);
+		expect(inQuietHours(quiet, at(6, 59))).toBe(true);
+		expect(inQuietHours(quiet, at(7))).toBe(false);
+		expect(inQuietHours(quiet, at(12))).toBe(false);
+	});
+
+	it("treats an empty window as off rather than as all day", () => {
+		expect(inQuietHours({ enabled: true, from: 600, to: 600 }, at(10))).toBe(false);
+	});
+
+	it("formats minutes as a clock time", () => {
+		expect(formatMinutes(0)).toBe("00:00");
+		expect(formatMinutes(23 * 60 + 5)).toBe("23:05");
 	});
 });
 

@@ -7,18 +7,28 @@
 //! window/tray plumbing.
 
 mod session;
+mod tray;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .setup(|app| {
+            // A tray that fails to build should not stop the app starting —
+            // some minimal desktops have no tray at all.
+            if let Err(error) = tray::build(app.handle()) {
+                eprintln!("tray unavailable: {error}");
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             session::save_session,
             session::load_sessions,
             session::set_active_session,
             session::remove_session,
             session::clear_session,
+            tray::set_unread,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

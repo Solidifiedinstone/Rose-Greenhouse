@@ -47,6 +47,9 @@ that only look like they work.
 - **Multiple accounts** — sign into several, switch from the status menu, sign
   out of one without touching the rest. Each account gets its own crypto
   store, so device keys can never collide
+- Tray icon with the unread count in its tooltip, and a menu to reopen or quit
+- **Quiet hours** — notifications are held, not dropped, and released as one
+  summary when the window ends
 - Desktop notifications driven by your Matrix push rules, per-room mute as a
   real push rule, and a DND status that silences everything
 - Profile: avatar, banner, about, pronouns, and per-element styling published
@@ -59,8 +62,8 @@ that only look like they work.
 
 ## Next
 
-**Background sync for inactive accounts** (level 2 below), then threads, tray
-and unread badge, scheduled messages and quiet hours.
+**Threads**, then scheduled messages, then background sync for inactive
+accounts (level 2 below).
 
 ---
 
@@ -70,7 +73,6 @@ and unread badge, scheduled messages and quiet hours.
 Nothing below is exotic; the app isn't daily-driveable without them.
 
 - Threads
-- Notifications, tray icon, unread badge
 
 ### The differentiators
 The reasons to use this over Element.
@@ -78,7 +80,6 @@ The reasons to use this over Element.
 - **Recovery-key restore**, for verifying when this is your only session
 - **Local-first search** over your own history, with no server-side index
 - **Scheduled messages** — write now, send at a time, or when next online
-- **Quiet hours** — notifications held rather than dropped, and shown after
 - **Activity status** — Discord-style presence. Greenhouse-to-Greenhouse via a
   custom account-data event; degrades to plain Matrix presence for everyone else
 - **Meshtastic** — chat over LoRa when there's no internet. A separate

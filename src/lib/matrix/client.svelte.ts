@@ -34,6 +34,8 @@ import {
 	type MatrixClient
 } from "matrix-js-sdk";
 
+import { invoke } from "@tauri-apps/api/core";
+
 import {
 	clearSessions,
 	cryptoPrefix,
@@ -44,7 +46,15 @@ import {
 	setActiveSession,
 	type StoredSession
 } from "./session";
-import { considerEvent, isRoomMuted, loadNotificationPrefs, setRoomMuted } from "./notify.svelte";
+import {
+	considerEvent,
+	inQuietHours,
+	isRoomMuted,
+	loadNotificationPrefs,
+	notifications,
+	releaseHeld,
+	setRoomMuted
+} from "./notify.svelte";
 import { hasMarkdown, renderMarkdown } from "./markdown";
 import { loadProfile, resetProfile } from "./profile.svelte";
 import { refreshStatus, reset as resetVerification, watchForRequests } from "./verification.svelte";
@@ -384,6 +394,16 @@ async function connect(session: StoredSession): Promise<void> {
 	loadNotificationPrefs();
 	mx.receiptsOff = receiptPrefs().off;
 
+	/*
+	 * Quiet hours end by the clock, not by anyone clicking anything, so
+	 * something has to notice. A minute's granularity is plenty for a feature
+	 * measured in hours, and the check is trivial.
+	 */
+	const quietTimer = setInterval(() => {
+		if (!inQuietHours(notifications.quiet)) void releaseHeld();
+	}, 60_000);
+	detachers.push(() => clearInterval(quietTimer));
+
 	// Verification state, and a listener so a request started from another
 	// client (Element on a phone, say) surfaces here rather than being missed.
 	detachers.push(watchForRequests(client));
@@ -643,12 +663,39 @@ function rebuildRooms(): void {
 		views.push(roomToView(room, spaces.get(room.roomId) ?? []));
 	}
 	mx.rooms = sortRooms(views);
+	updateTray(views);
 
 	// A space you have left, or that no longer exists, must not keep filtering
 	// the list — that would leave an empty sidebar with no way back.
 	if (mx.activeSpaceId && !views.some((room) => room.id === mx.activeSpaceId)) {
 		mx.activeSpaceId = null;
 	}
+}
+
+/**
+ * Keep the tray tooltip in step with what is waiting.
+ *
+ * Counted from the same room views the sidebar shows, so the tray can never
+ * disagree with the badge next to a room — a tray saying "3 unread" over an
+ * empty list is the kind of thing people stop trusting.
+ */
+let lastTray = "";
+
+function updateTray(views: RoomView[]): void {
+	let total = 0;
+	let highlights = 0;
+	for (const room of views) {
+		total += room.unread;
+		highlights += room.highlights;
+	}
+
+	const signature = `${total}|${highlights}`;
+	if (signature === lastTray) return;
+	lastTray = signature;
+
+	// Failing to reach the tray is not worth surfacing: plenty of desktops
+	// have no tray, and the app works perfectly without one.
+	invoke("set_unread", { total, highlights }).catch(() => {});
 }
 
 function roomToView(room: Room, spaceIds: string[]): RoomView {
