@@ -1,0 +1,276 @@
+/**
+ * Device verification — the thing standing between you and your own history.
+ *
+ * A fresh login gets its own device key, which nobody has met before. Until
+ * another of your sessions vouches for it, the homeserver will not hand it
+ * the room keys, so every encrypted message that predates the login shows as
+ * "encrypted message" or fails to decrypt. That is not a bug in the client;
+ * it is the encryption working, and the fix is to verify.
+ *
+ * The flow implemented here is SAS — short authentication string, the emoji
+ * comparison. Both directions work: this client can ask another session to
+ * verify it, and it answers a request started from Element or any other
+ * client.
+ *
+ * Deliberately NOT implemented, and said plainly rather than stubbed:
+ * recovery-key restore for people with no second session. If this is your
+ * only signed-in device, verification here cannot help you and the UI says
+ * so instead of spinning.
+ */
+
+// The crypto API is not re-exported from the package root in this version,
+// so these come from the subpath. Checked against the installed build rather
+// than assumed — the root export has none of these at runtime.
+import {
+	CryptoEvent,
+	VerificationPhase,
+	VerificationRequestEvent,
+	VerifierEvent,
+	type EmojiMapping,
+	type ShowSasCallbacks,
+	type VerificationRequest
+} from "matrix-js-sdk/lib/crypto-api";
+import type { MatrixClient } from "matrix-js-sdk";
+
+export type VerifyStage =
+	| "idle"
+	| "requesting" // waiting for the other session to accept
+	| "ready" // accepted; picking a method
+	| "comparing" // emoji on screen, waiting for both sides
+	| "waiting" // we confirmed; waiting for them
+	| "done"
+	| "cancelled"
+	| "error";
+
+export const verify = $state({
+	/** Is this device signed by our own cross-signing identity? */
+	deviceVerified: false,
+	crossSigningReady: false,
+	keyBackup: false,
+	/** How many other sessions could do the verifying. */
+	otherDevices: 0,
+	/** True once we have actually asked the crypto stack, so the UI can wait. */
+	checked: false,
+
+	stage: "idle" as VerifyStage,
+	/** The seven emoji, as [emoji, name] pairs. */
+	emoji: [] as EmojiMapping[],
+	otherDeviceId: "",
+	error: "",
+	/** Set when the other side started it, so the UI can offer to accept. */
+	incoming: false
+});
+
+let request: VerificationRequest | null = null;
+let sas: ShowSasCallbacks | null = null;
+
+/** Read the real state out of the crypto stack. Safe to call often. */
+export async function refreshStatus(client: MatrixClient | null): Promise<void> {
+	const crypto = client?.getCrypto();
+	if (!client || !crypto) {
+		verify.checked = true;
+		return;
+	}
+	try {
+		const userId = client.getUserId();
+		const deviceId = client.getDeviceId();
+		if (userId && deviceId) {
+			const status = await crypto.getDeviceVerificationStatus(userId, deviceId);
+			// crossSigningVerified is the one that matters: "signed by an identity
+			// I trust", not merely "locally marked as fine".
+			verify.deviceVerified = Boolean(status?.crossSigningVerified);
+			const devices = await crypto.getUserDeviceInfo([userId]);
+			const mine = devices.get(userId);
+			verify.otherDevices = mine ? Math.max(0, mine.size - 1) : 0;
+		}
+		verify.crossSigningReady = await crypto.isCrossSigningReady();
+		verify.keyBackup = Boolean(await crypto.getActiveSessionBackupVersion());
+	} catch (error) {
+		console.warn("could not read encryption status", error);
+	} finally {
+		verify.checked = true;
+	}
+}
+
+/** Listen for verification started from another client. Call once, on connect. */
+export function watchForRequests(client: MatrixClient): () => void {
+	const onRequest = (incoming: VerificationRequest) => {
+		// Ignore anything already finished, and don't stomp one in progress.
+		if (incoming.phase === VerificationPhase.Done) return;
+		if (request && request.phase !== VerificationPhase.Done) return;
+		request = incoming;
+		verify.incoming = true;
+		verify.stage = "requesting";
+		verify.otherDeviceId = incoming.otherDeviceId ?? "";
+		verify.error = "";
+		attach(incoming);
+	};
+
+	client.on(CryptoEvent.VerificationRequestReceived, onRequest);
+	return () => client.off(CryptoEvent.VerificationRequestReceived, onRequest);
+}
+
+/** Ask another of your sessions to verify this one. */
+export async function start(client: MatrixClient | null): Promise<void> {
+	const crypto = client?.getCrypto();
+	if (!crypto) {
+		verify.stage = "error";
+		verify.error = "Encryption isn't running, so there is nothing to verify.";
+		return;
+	}
+	reset();
+	verify.stage = "requesting";
+	try {
+		request = await crypto.requestOwnUserVerification();
+		verify.otherDeviceId = request.otherDeviceId ?? "";
+		attach(request);
+	} catch (error) {
+		verify.stage = "error";
+		verify.error = message(error);
+	}
+}
+
+/** Accept a request another session started. */
+export async function accept(): Promise<void> {
+	if (!request) return;
+	try {
+		await request.accept();
+	} catch (error) {
+		verify.stage = "error";
+		verify.error = message(error);
+	}
+}
+
+/** Both sides show the same emoji — say so. */
+export async function confirmMatch(): Promise<void> {
+	if (!sas) return;
+	verify.stage = "waiting";
+	try {
+		await sas.confirm();
+	} catch (error) {
+		verify.stage = "error";
+		verify.error = message(error);
+	}
+}
+
+/**
+ * The emoji differ. This is the one branch that actually matters for
+ * security: a mismatch means something is sitting between the two sessions,
+ * so it must cancel loudly rather than quietly retry.
+ */
+export function reportMismatch(): void {
+	if (!sas) return;
+	sas.mismatch();
+	verify.stage = "cancelled";
+	verify.error =
+		"You said the emoji didn't match, so the verification was stopped. " +
+		"If they really differ, something is intercepting the exchange — do " +
+		"not verify, and check the other session.";
+}
+
+export async function cancel(): Promise<void> {
+	try {
+		await request?.cancel();
+	} catch {
+		// Cancelling a request that has already gone is not worth reporting.
+	}
+	reset();
+}
+
+export function reset(): void {
+	request = null;
+	sas = null;
+	verify.stage = "idle";
+	verify.emoji = [];
+	verify.error = "";
+	verify.incoming = false;
+	verify.otherDeviceId = "";
+}
+
+// ── Wiring one request through to the emoji ──────────────────────
+
+function attach(current: VerificationRequest): void {
+	const onChange = () => {
+		if (current !== request) return;
+		verify.otherDeviceId = current.otherDeviceId ?? verify.otherDeviceId;
+
+		switch (current.phase) {
+			case VerificationPhase.Ready:
+				verify.stage = "ready";
+				// Both sides may call this: the SDK handles the race where two
+				// m.key.verification.start events cross, and whichever loses
+				// still ends up with a verifier on the request.
+				void beginSas(current);
+				break;
+			case VerificationPhase.Started:
+				hookVerifier(current);
+				break;
+			case VerificationPhase.Done:
+				verify.stage = "done";
+				verify.emoji = [];
+				break;
+			case VerificationPhase.Cancelled:
+				verify.stage = "cancelled";
+				if (!verify.error) {
+					verify.error = current.cancellationCode
+						? `Cancelled (${current.cancellationCode}).`
+						: "The other session cancelled.";
+				}
+				break;
+		}
+	};
+
+	current.on(VerificationRequestEvent.Change, onChange);
+	onChange();
+}
+
+async function beginSas(current: VerificationRequest): Promise<void> {
+	try {
+		if (current.verifier) {
+			hookVerifier(current);
+			return;
+		}
+		await current.startVerification("m.sas.v1");
+		hookVerifier(current);
+	} catch (error) {
+		// A race where both sides start is normal and self-resolving; the
+		// request's own phase change will bring us back here with a verifier.
+		if (current.verifier) {
+			hookVerifier(current);
+			return;
+		}
+		verify.stage = "error";
+		verify.error = message(error);
+	}
+}
+
+function hookVerifier(current: VerificationRequest): void {
+	const verifier = current.verifier;
+	if (!verifier) return;
+
+	const existing = verifier.getShowSasCallbacks();
+	if (existing) {
+		show(existing);
+		return;
+	}
+	verifier.on(VerifierEvent.ShowSas, show);
+	// The verifier only produces the SAS once it is driven, and this resolves
+	// when the whole exchange finishes.
+	verifier.verify().catch((error: unknown) => {
+		if (verify.stage === "done" || verify.stage === "cancelled") return;
+		verify.stage = "error";
+		verify.error = message(error);
+	});
+}
+
+function show(callbacks: ShowSasCallbacks): void {
+	sas = callbacks;
+	// The emoji live on the generated SAS, not on the callbacks themselves.
+	verify.emoji = callbacks.sas.emoji ?? [];
+	verify.stage = "comparing";
+}
+
+function message(error: unknown): string {
+	if (error instanceof Error) return error.message;
+	return String(error ?? "Something went wrong.");
+}

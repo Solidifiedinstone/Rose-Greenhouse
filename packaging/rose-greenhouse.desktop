@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Rose Greenhouse
+GenericName=Matrix Client
+Comment=Chat on Matrix — familiar layout, deep theming, no telemetry
+Exec=rose-greenhouse
+Icon=rose-greenhouse
+Terminal=false
+Categories=Network;InstantMessaging;Chat;
+Keywords=matrix;chat;messaging;element;im;rooms;encrypted;
+StartupNotify=true
+StartupWMClass=rose-greenhouse
