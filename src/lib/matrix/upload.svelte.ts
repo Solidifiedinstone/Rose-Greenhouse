@@ -169,6 +169,37 @@ const decrypted = new Map<string, string>();
 const fetched = new Map<string, string>();
 
 /**
+ * How many blobs to keep.
+ *
+ * Every cached entry is an object URL holding its bytes in memory until it is
+ * revoked. Unbounded, a long session across busy rooms will hold every avatar
+ * and image it has ever seen — which on the low-end hardware this targets is
+ * the difference between running and swapping. Map preserves insertion order,
+ * so evicting the oldest key is an LRU with no bookkeeping.
+ */
+const MEDIA_CACHE_LIMIT = 240;
+
+function remember(cache: Map<string, string>, key: string, url: string): void {
+	cache.set(key, url);
+	while (cache.size > MEDIA_CACHE_LIMIT) {
+		const oldest = cache.keys().next().value as string | undefined;
+		if (oldest === undefined) break;
+		const stale = cache.get(oldest);
+		if (stale) URL.revokeObjectURL(stale);
+		cache.delete(oldest);
+	}
+}
+
+/** Move a hit to the newest position, so it survives eviction. */
+function touch(cache: Map<string, string>, key: string): string | undefined {
+	const url = cache.get(key);
+	if (url === undefined) return undefined;
+	cache.delete(key);
+	cache.set(key, url);
+	return url;
+}
+
+/**
  * Turn an `mxc://` into something an `<img>` can actually display.
  *
  * This exists because of authenticated media (MSC3916), which current
@@ -188,7 +219,7 @@ export async function resolveMxc(
 ): Promise<string | null> {
 	if (!mxc) return null;
 	const key = `${mxc}|${width ?? 0}|${height ?? 0}`;
-	const cached = fetched.get(key);
+	const cached = touch(fetched, key);
 	if (cached) return cached;
 
 	let http =
@@ -214,7 +245,7 @@ export async function resolveMxc(
 		const response = await fetch(http, { headers: authHeaders(client) });
 		if (!response.ok) return null;
 		const url = URL.createObjectURL(await response.blob());
-		fetched.set(key, url);
+		remember(fetched, key, url);
 		return url;
 	} catch {
 		return null;
@@ -234,7 +265,7 @@ export async function resolveAttachment(
 	file: EncryptedFile | null
 ): Promise<string | null> {
 	if (file?.url) {
-		const cached = decrypted.get(file.url);
+		const cached = touch(decrypted, file.url);
 		if (cached) return cached;
 
 		const http = client.mxcUrlToHttp(file.url, undefined, undefined, undefined, false, true, true);
@@ -247,7 +278,7 @@ export async function resolveAttachment(
 			const ciphertext = await response.arrayBuffer();
 			const plaintext = await decryptAttachment(ciphertext, file as never);
 			const url = URL.createObjectURL(new Blob([plaintext]));
-			decrypted.set(file.url, url);
+			remember(decrypted, file.url, url);
 			return url;
 		} catch {
 			return null;

@@ -787,12 +787,6 @@ export function hideRoom(roomId: string): void {
 	scheduleRoomRebuild();
 }
 
-export function unhideRoom(roomId: string): void {
-	const hidden = readHidden().filter((id) => id !== roomId);
-	writeHidden(hidden);
-	mx.hidden = hidden;
-	scheduleRoomRebuild();
-}
 
 export function unhideAll(): void {
 	writeHidden([]);
@@ -926,6 +920,8 @@ export function markRoomRead(roomId: string): void {
 }
 
 export function openRoom(roomId: string | null): void {
+	// Views are per-room; keeping another room's cache would only be memory.
+	viewCache.clear();
 	mx.activeRoomId = roomId;
 	mx.timeline = [];
 	mx.typing = [];
@@ -972,6 +968,35 @@ function presenceOf(userId: string): MemberView["presence"] {
 	return "unknown";
 }
 
+/**
+ * Flattened views, reused across rebuilds.
+ *
+ * The whole timeline is rebuilt whenever anything in the room changes, and a
+ * busy room rebuilds every frame. Re-allocating a view for a thousand
+ * unchanged messages each time is pure waste — worse, every new object breaks
+ * Svelte's keyed reconciliation and re-renders rows that did not change.
+ *
+ * The signature is everything that can alter how a message draws, and it is
+ * cheap to compute: no relations lookup, no sorting.
+ */
+const viewCache = new Map<string, { signature: string; view: MessageView }>();
+
+function signatureOf(event: MatrixEvent, room: Room): string {
+	const id = event.getId() ?? "";
+	const relations = room
+		.getUnfilteredTimelineSet()
+		.relations.getChildEventsForEvent(id, "m.annotation", "m.reaction");
+	return [
+		event.status ?? "",
+		event.replacingEventId?.() ?? "",
+		event.isRedacted() ? "r" : "",
+		event.isDecryptionFailure() ? "d" : "",
+		// The relation count changes on every add or remove, which is exactly
+		// when the pills need redrawing.
+		relations?.getRelations()?.length ?? 0
+	].join("|");
+}
+
 function rebuildTimeline(): void {
 	if (!client || !mx.activeRoomId) {
 		mx.timeline = [];
@@ -984,10 +1009,38 @@ function rebuildTimeline(): void {
 	}
 
 	const views: MessageView[] = [];
+	const seen = new Set<string>();
+
 	for (const event of room.getLiveTimeline().getEvents()) {
+		const id = event.getId();
+		if (!id) {
+			const view = eventToView(event, room);
+			if (view) views.push(view);
+			continue;
+		}
+
+		seen.add(id);
+		const signature = signatureOf(event, room);
+		const cached = viewCache.get(id);
+		if (cached && cached.signature === signature) {
+			views.push(cached.view);
+			continue;
+		}
+
 		const view = eventToView(event, room);
-		if (view) views.push(view);
+		if (!view) continue;
+		viewCache.set(id, { signature, view });
+		views.push(view);
 	}
+
+	// Drop anything no longer in the timeline, so switching rooms or
+	// paginating away doesn't grow this forever.
+	if (viewCache.size > seen.size * 2 + 64) {
+		for (const key of viewCache.keys()) {
+			if (!seen.has(key)) viewCache.delete(key);
+		}
+	}
+
 	mx.timeline = markContinuations(views);
 }
 

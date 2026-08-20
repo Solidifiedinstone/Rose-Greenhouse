@@ -463,7 +463,7 @@ export const BUILTIN_THEMES: Theme[] = [
 	name: "Terminal",
 	scheme: "dark",
 	builtin: true,
-	shape: clampShape({ radius: 0, buttonRadius: 0, avatarRounding: 0, borderWidth: 1, fontFamily: '"Hack", ui-monospace, monospace', density: "compact", messageGap: 3, avatarSize: 20, fontSize: 13 }),
+	shape: clampShape({ radius: 0, buttonRadius: 0, avatarRounding: 0, borderWidth: 1, fontFamily: "monospace", density: "compact", messageGap: 3, avatarSize: 20, fontSize: 13 }),
 	tokens: {
 		backdrop: "#000000",
 		rail: "#000000",
@@ -568,7 +568,7 @@ export const BUILTIN_THEMES: Theme[] = [
 	name: "Paper",
 	scheme: "light",
 	builtin: true,
-	shape: clampShape({ radius: 2, buttonRadius: 2, avatarRounding: 4, fontFamily: '"FreeSerif", Georgia, serif' }),
+	shape: clampShape({ radius: 2, buttonRadius: 2, avatarRounding: 4, fontFamily: "serif" }),
 	tokens: {
 		backdrop: "#f4f1ea",
 		rail: "#eae6dc",

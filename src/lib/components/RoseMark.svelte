@@ -64,7 +64,9 @@
 		display: block;
 		/* Width is implied by the viewBox; never let a flex parent squash it. */
 		flex: none;
-		font-family: "Hack", "DejaVu Sans Mono", "Liberation Mono", monospace;
+		/* Any monospace works: every glyph is placed by the viewBox and pinned
+		   with textLength, so the font supplies shapes and nothing else. */
+		font-family: ui-monospace, "DejaVu Sans Mono", "Liberation Mono", monospace;
 		font-size: 20px;
 		font-variant-ligatures: none;
 		font-feature-settings: "liga" 0, "clig" 0, "calt" 0;

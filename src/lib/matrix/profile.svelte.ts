@@ -22,6 +22,7 @@
 import type { MatrixClient } from "matrix-js-sdk";
 
 import { forgetMxc } from "./upload.svelte";
+import { SYSTEM_MONO_STACK, SYSTEM_UI_STACK } from "../theme/fonts";
 
 /** Our own account-data event. Namespaced so it can never collide. */
 export const PROFILE_EVENT = "org.rose.greenhouse.profile";
@@ -49,17 +50,18 @@ function toMatrixPresence(presence: Presence): "online" | "unavailable" | "offli
  * on a card describing *somebody else*, so it is remote input: an id that has
  * to match this list can't carry anything into CSS, whereas a free-text stack
  * from a stranger's profile is an injection waiting to happen.
+ *
+ * Generic families only. A profile styled with a font you don't have would
+ * fall back silently anyway, so promising specific typefaces across machines
+ * would be a promise this cannot keep.
  */
 export const PROFILE_FONTS: { id: string; label: string; stack: string }[] = [
 	{ id: "default", label: "Default", stack: "inherit" },
-	{ id: "rubik", label: "Rubik", stack: '"Rubik", system-ui, sans-serif' },
-	{ id: "grotesk", label: "Space Grotesk", stack: '"Space Grotesk", system-ui, sans-serif' },
-	{ id: "uncut", label: "Uncut Sans", stack: '"Uncut Sans", system-ui, sans-serif' },
-	{ id: "readex", label: "Readex Pro", stack: '"Readex Pro", system-ui, sans-serif' },
-	{ id: "adwaita", label: "Adwaita Sans", stack: '"Adwaita Sans", system-ui, sans-serif' },
-	{ id: "serif", label: "Serif", stack: '"FreeSerif", Georgia, serif' },
-	{ id: "mono", label: "Monospace", stack: '"Hack", ui-monospace, monospace' },
-	{ id: "spacemono", label: "Space Mono", stack: '"Space Mono", ui-monospace, monospace' }
+	{ id: "sans", label: "Sans-serif", stack: "sans-serif" },
+	{ id: "serif", label: "Serif", stack: "serif" },
+	{ id: "mono", label: "Monospace", stack: "monospace" },
+	{ id: "system", label: "System", stack: SYSTEM_UI_STACK() },
+	{ id: "systemmono", label: "System monospace", stack: SYSTEM_MONO_STACK() }
 ];
 
 export function fontStack(id: string): string {

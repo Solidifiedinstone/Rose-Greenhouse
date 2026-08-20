@@ -120,9 +120,6 @@ export function setGradient(target: GradientTarget, gradient: Gradient | null): 
 	paint();
 }
 
-export function getGradient(target: GradientTarget): Gradient | null {
-	return activeTheme().gradients?.[target] ?? null;
-}
 
 export function setDraftName(name: string): void {
 	if (themeState.draft) themeState.draft.name = name;

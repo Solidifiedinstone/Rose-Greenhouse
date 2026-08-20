@@ -12,6 +12,13 @@
  * actually reading the variable.
  */
 
+import {
+	SYSTEM_MONO_STACK,
+	SYSTEM_UI_STACK,
+	availableFonts,
+	type FontChoice
+} from "./fonts";
+
 export interface Shape {
 	// ── Roundness ────────────────────────────────────────────────
 	/** Corner radius on panels and inputs, px. 0 is fully blocky. */
@@ -72,8 +79,10 @@ export const DEFAULT_SHAPE: Shape = {
 	avatarRounding: 50,
 	borderWidth: 1,
 
-	fontFamily: '"Adwaita Sans", "Inter", system-ui, -apple-system, "Liberation Sans", sans-serif',
-	monoFamily: '"Hack", "JetBrainsMono NFM", "DejaVu Sans Mono", ui-monospace, monospace',
+	// Generic stacks only. Naming a specific font here would be a default that
+	// silently falls back on any machine without it.
+	fontFamily: SYSTEM_UI_STACK(),
+	monoFamily: SYSTEM_MONO_STACK(),
 	fontSize: 15,
 	lineHeight: 1.5,
 	boldWeight: 700,
@@ -118,34 +127,19 @@ export const SHAPE_LIMITS: Record<
 };
 
 /**
- * Fonts offered in the picker.
+ * Fonts offered in the pickers.
  *
- * Only families actually present on a normal Linux desktop, plus the generic
- * fallbacks. A picker listing fonts that silently fall back to something else
- * is worse than a short list — you pick one, nothing changes, and you assume
- * the setting is broken.
+ * Detected at runtime — see `fonts.ts`. These were once a hand-written list
+ * taken from one machine, which meant most entries matched nothing anywhere
+ * else and the setting looked broken.
  */
-export const UI_FONTS: { label: string; value: string }[] = [
-	{ label: "System default", value: 'system-ui, -apple-system, "Liberation Sans", sans-serif' },
-	{ label: "Adwaita Sans", value: '"Adwaita Sans", system-ui, sans-serif' },
-	{ label: "Rubik", value: '"Rubik", system-ui, sans-serif' },
-	{ label: "Space Grotesk", value: '"Space Grotesk", system-ui, sans-serif' },
-	{ label: "Uncut Sans", value: '"Uncut Sans", system-ui, sans-serif' },
-	{ label: "Readex Pro", value: '"Readex Pro", system-ui, sans-serif' },
-	{ label: "Google Sans Flex", value: '"Google Sans Flex", system-ui, sans-serif' },
-	{ label: "Liberation Sans", value: '"Liberation Sans", Arial, sans-serif' },
-	{ label: "FreeSerif", value: '"FreeSerif", Georgia, serif' },
-	{ label: "Monospace (Hack)", value: '"Hack", ui-monospace, monospace' },
-	{ label: "Monospace (JetBrains)", value: '"JetBrainsMono NFM", ui-monospace, monospace' }
-];
+export function uiFonts(): FontChoice[] {
+	return availableFonts().ui;
+}
 
-export const MONO_FONTS: { label: string; value: string }[] = [
-	{ label: "Hack", value: '"Hack", ui-monospace, monospace' },
-	{ label: "JetBrains Mono", value: '"JetBrainsMono NFM", ui-monospace, monospace' },
-	{ label: "Space Mono", value: '"Space Mono", ui-monospace, monospace' },
-	{ label: "Adwaita Mono", value: '"Adwaita Mono", ui-monospace, monospace' },
-	{ label: "System monospace", value: "ui-monospace, monospace" }
-];
+export function monoFonts(): FontChoice[] {
+	return availableFonts().mono;
+}
 
 /** Ready-made shapes, so "make it blocky" is one click and not twelve. */
 export const SHAPE_PRESETS: { id: string; name: string; hint: string; shape: Partial<Shape> }[] = [

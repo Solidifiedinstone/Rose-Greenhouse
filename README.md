@@ -118,8 +118,13 @@ npm run check          # types and Svelte
 ```
 
 Linux needs `webkit2gtk-4.1`, `gtk3`, `librsvg` and `libappindicator`. On
-Arch/Artix those are `webkit2gtk-4.1 gtk3 librsvg libappindicator-gtk3`;
-AppImage bundling also wants `patchelf`.
+Arch/Artix: `webkit2gtk-4.1 gtk3 librsvg libappindicator-gtk3`. On Debian and
+Ubuntu: `libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev`.
+
+`npm run tauri build` produces a `.deb` and an `.rpm`. AppImage is not built
+by default because its packer needs `patchelf`, which is absent on a plain
+system and on most CI runners — install it and run
+`npm run tauri build -- --bundles appimage` if you want one.
 
 Then put it in your application menu:
 

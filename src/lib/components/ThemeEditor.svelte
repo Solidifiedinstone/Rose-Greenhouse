@@ -18,10 +18,10 @@
 	} from "$lib/theme/theme.svelte";
 	import {
 		DENSITY_PRESETS,
-		MONO_FONTS,
+		monoFonts,
 		SHAPE_LIMITS,
 		SHAPE_PRESETS,
-		UI_FONTS
+		uiFonts
 	} from "$lib/theme/shape";
 	import {
 		GRADIENT_TARGETS,
@@ -50,6 +50,10 @@
 	}
 
 	const numericKeys = Object.keys(SHAPE_LIMITS) as (keyof typeof SHAPE_LIMITS)[];
+
+	// Measured once on this machine, so the list only offers fonts that exist.
+	const ui = uiFonts();
+	const mono = monoFonts();
 
 	function save() {
 		const problem = saveDraft();
@@ -140,10 +144,10 @@
 				value={draft.shape.fontFamily}
 				onchange={(event) => setShape({ fontFamily: event.currentTarget.value })}
 			>
-				{#each UI_FONTS as font (font.label)}
+				{#each ui as font (font.label)}
 					<option value={font.value}>{font.label}</option>
 				{/each}
-				{#if !UI_FONTS.some((f) => f.value === draft.shape.fontFamily)}
+				{#if !ui.some((f) => f.value === draft.shape.fontFamily)}
 					<option value={draft.shape.fontFamily}>Custom</option>
 				{/if}
 			</select>
@@ -154,10 +158,10 @@
 				value={draft.shape.monoFamily}
 				onchange={(event) => setShape({ monoFamily: event.currentTarget.value })}
 			>
-				{#each MONO_FONTS as font (font.label)}
+				{#each mono as font (font.label)}
 					<option value={font.value}>{font.label}</option>
 				{/each}
-				{#if !MONO_FONTS.some((f) => f.value === draft.shape.monoFamily)}
+				{#if !mono.some((f) => f.value === draft.shape.monoFamily)}
 					<option value={draft.shape.monoFamily}>Custom</option>
 				{/if}
 			</select>

@@ -10,12 +10,32 @@
 
 	let term = $state("");
 	let thisRoomOnly = $state(false);
+	let hits: SearchHit[] = $state([]);
+	let searching = $state(false);
 
-	const hits = $derived<SearchHit[]>(
-		term.trim().length >= 2
-			? searchLocal(term, thisRoomOnly ? (mx.activeRoomId ?? undefined) : undefined)
-			: []
-	);
+	/*
+	 * Debounced deliberately.
+	 *
+	 * Searching walks every loaded timeline in every joined room. Running that
+	 * synchronously on each keystroke made typing lurch on any account with a
+	 * real history — the work is proportional to everything you have ever
+	 * loaded, not to the query.
+	 */
+	$effect(() => {
+		const query = term.trim();
+		const scope = thisRoomOnly ? (mx.activeRoomId ?? undefined) : undefined;
+		if (query.length < 2) {
+			hits = [];
+			searching = false;
+			return;
+		}
+		searching = true;
+		const timer = setTimeout(() => {
+			hits = searchLocal(query, scope);
+			searching = false;
+		}, 220);
+		return () => clearTimeout(timer);
+	});
 
 	function open(hit: SearchHit) {
 		openRoom(hit.roomId);
@@ -48,9 +68,11 @@
 				</button>
 			{:else}
 				<p class="note">
-					{term.trim().length >= 2
-						? "Nothing found in what's loaded."
-						: "Type at least two characters."}
+					{searching
+						? "Searching…"
+						: term.trim().length >= 2
+							? "Nothing found in what's loaded."
+							: "Type at least two characters."}
 				</p>
 			{/each}
 		</div>

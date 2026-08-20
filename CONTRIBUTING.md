@@ -55,6 +55,23 @@ npm run check   # types and Svelte, must be 0 errors
 
 Linux build deps: `webkit2gtk-4.1`, `gtk3`, `librsvg`, `libappindicator-gtk3`.
 
+`npm run tauri build` bundles a `.deb` and an `.rpm`. **AppImage is
+deliberately not a default target**: its packer shells out to `patchelf`,
+which is absent on a plain system and on most CI runners, and a default that
+fails on a clean machine is not a default. Install `patchelf` and run
+`npm run tauri build -- --bundles appimage` if you want one.
+
+## Nothing may be specific to one machine
+
+Fonts are the example that bit us. The font pickers were once a hand-written
+list copied from one developer's `fc-list`, so on anyone else's machine most
+entries matched nothing, the browser fell back silently, and the setting
+looked broken. `src/lib/theme/fonts.ts` now measures which families actually
+render before offering them.
+
+The same rule applies to paths, hostnames and hardware assumptions: if it
+only works because of how your box happens to be set up, it is a bug.
+
 ## Testing
 
 Anything that can be tested without a homeserver, should be. Message grouping,

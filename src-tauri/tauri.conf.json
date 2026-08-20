@@ -50,8 +50,8 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "rpm", "appimage"],
-    "category": "Network",
+    "targets": ["deb", "rpm"],
+    "category": "SocialNetworking",
     "shortDescription": "A Matrix client that gets out of your way",
     "longDescription": "Rose Greenhouse is a Matrix client with a familiar layout, heavy theming, and no telemetry.",
     "icon": [
@@ -61,10 +61,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "linux": {
-      "deb": {
-        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
-      }
-    }
+    "linux": {}
   }
 }
