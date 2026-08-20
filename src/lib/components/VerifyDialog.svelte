@@ -94,6 +94,20 @@
 		{:else if verify.stage === "cancelled" || verify.stage === "error"}
 			<h2>{verify.stage === "error" ? "Verification failed" : "Verification stopped"}</h2>
 			<p class="bad">{verify.error || "It was cancelled."}</p>
+			{#if verify.trace.length}
+				<details class="trace">
+					<summary>What happened</summary>
+					<ol>
+						{#each verify.trace as line, index (index)}
+							<li>{line}</li>
+						{/each}
+					</ol>
+					<p class="hint">
+						Send this if it keeps failing — it says whether the exchange was
+						cancelled, timed out, or went out of order.
+					</p>
+				</details>
+			{/if}
 			<div class="actions">
 				<button class="button" onclick={close}>Close</button>
 				<button class="button primary" onclick={() => start(getClient())}>Try again</button>
@@ -203,6 +217,30 @@
 		display: flex;
 		justify-content: flex-end;
 		gap: 8px;
+	}
+
+	.trace {
+		margin-bottom: 14px;
+		font-size: 11px;
+		color: var(--text-faint);
+	}
+
+	.trace summary {
+		cursor: pointer;
+		color: var(--text-dim);
+	}
+
+	.trace ol {
+		margin: 8px 0 6px;
+		padding-left: 20px;
+		font-family: var(--mono-family);
+		line-height: 1.6;
+	}
+
+	.trace .hint {
+		margin: 0;
+		font-size: 10px;
+		color: var(--text-faint);
 	}
 
 	.button.danger {

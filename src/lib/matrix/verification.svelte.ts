@@ -58,8 +58,21 @@ export const verify = $state({
 	otherDeviceId: "",
 	error: "",
 	/** Set when the other side started it, so the UI can offer to accept. */
-	incoming: false
+	incoming: false,
+	/**
+	 * A short record of what happened, shown when something fails.
+	 *
+	 * This exists because verification cannot be reproduced without two real
+	 * signed-in sessions, so a failure that only says "it failed" leaves
+	 * nothing to work from. Phases, codes and errors in order are enough to
+	 * tell a cancelled exchange from a protocol ordering mistake.
+	 */
+	trace: [] as string[]
 });
+
+function note(line: string): void {
+	verify.trace = [...verify.trace, line].slice(-20);
+}
 
 let request: VerificationRequest | null = null;
 let sas: ShowSasCallbacks | null = null;
@@ -128,6 +141,7 @@ export async function start(client: MatrixClient | null): Promise<void> {
 	}
 	reset();
 	verify.stage = "requesting";
+	note("requesting");
 	try {
 		request = await crypto.requestOwnUserVerification();
 		verify.otherDeviceId = request.otherDeviceId ?? "";
@@ -162,6 +176,7 @@ export async function confirmMatch(): Promise<void> {
 		 * that — so a failure here is reported with what it actually was
 		 * rather than a bare "verification failed".
 		 */
+		note(`confirm failed: ${message(error)}`);
 		verify.stage = "error";
 		verify.error = `Sending your confirmation failed: ${message(error)}`;
 	}
@@ -201,6 +216,7 @@ export function reset(): void {
 	verify.error = "";
 	verify.incoming = false;
 	verify.otherDeviceId = "";
+	verify.trace = [];
 }
 
 // ── Wiring one request through to the emoji ──────────────────────
@@ -225,6 +241,8 @@ function attach(current: VerificationRequest): void {
 	const onChange = () => {
 		if (current !== request) return;
 		verify.otherDeviceId = current.otherDeviceId ?? verify.otherDeviceId;
+
+		note(`phase ${VerificationPhase[current.phase] ?? current.phase}`);
 
 		switch (current.phase) {
 			case VerificationPhase.Ready:
@@ -270,6 +288,7 @@ async function beginSas(current: VerificationRequest): Promise<void> {
 	}
 
 	sasStarted = true;
+	note("sending start");
 	try {
 		await current.startVerification("m.sas.v1");
 		hookVerifier(current);
@@ -294,18 +313,25 @@ function hookVerifier(current: VerificationRequest): void {
 	// phase changes, so the guard is the point.
 	if (drivenVerifier === verifier) return;
 	drivenVerifier = verifier;
+	note("driving verifier");
 
 	/*
-	 * Subscribe first, and only fall back to the getter if no event arrives.
+	 * A new verifier means the old callbacks are dead.
 	 *
-	 * Doing both meant `sas` could end up holding a *different* callbacks
-	 * object than the live one, and `confirm()` on a stale object fails the
-	 * moment it is pressed — before the other side has done anything, which is
-	 * exactly what it looked like.
+	 * `confirm()` calls straight into the Rust verifier it came from, so
+	 * holding callbacks belonging to a verifier that has been replaced makes
+	 * "they match" throw the instant it is pressed — before the other side has
+	 * done anything. Clearing here is what stops a retried or superseded
+	 * exchange failing on the first click.
 	 */
+	sas = null;
+	verify.emoji = [];
+
 	verifier.on(VerifierEvent.ShowSas, show);
+	// Same object the event carries, so this is only a head start, not a
+	// different set of callbacks.
 	const existing = verifier.getShowSasCallbacks();
-	if (existing && !sas) show(existing);
+	if (existing) show(existing);
 	// The verifier only produces the SAS once it is driven, and this resolves
 	// when the whole exchange finishes.
 	verifier.verify().catch((error: unknown) => {
@@ -320,6 +346,7 @@ function hookVerifier(current: VerificationRequest): void {
 }
 
 function show(callbacks: ShowSasCallbacks): void {
+	note("emoji shown");
 	sas = callbacks;
 	// The emoji live on the generated SAS, not on the callbacks themselves.
 	verify.emoji = callbacks.sas.emoji ?? [];
