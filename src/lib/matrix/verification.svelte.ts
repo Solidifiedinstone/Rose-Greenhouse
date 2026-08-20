@@ -79,7 +79,15 @@ export async function refreshStatus(client: MatrixClient | null): Promise<void> 
 			// crossSigningVerified is the one that matters: "signed by an identity
 			// I trust", not merely "locally marked as fine".
 			verify.deviceVerified = Boolean(status?.crossSigningVerified);
-			const devices = await crypto.getUserDeviceInfo([userId]);
+			/*
+			 * `downloadUncached: true` matters.
+			 *
+			 * Without it this returns only devices already in the local cache,
+			 * which on a fresh login is just this one — so the count came back
+			 * zero, the dialog decided there was nothing to verify against, and
+			 * refused to start. Asking the server is the whole point here.
+			 */
+			const devices = await crypto.getUserDeviceInfo([userId], true);
 			const mine = devices.get(userId);
 			verify.otherDevices = mine ? Math.max(0, mine.size - 1) : 0;
 		}
@@ -180,6 +188,8 @@ export async function cancel(): Promise<void> {
 export function reset(): void {
 	request = null;
 	sas = null;
+	sasStarted = false;
+	drivenVerifier = null;
 	verify.stage = "idle";
 	verify.emoji = [];
 	verify.error = "";
@@ -189,7 +199,23 @@ export function reset(): void {
 
 // ── Wiring one request through to the emoji ──────────────────────
 
+/**
+ * One request in flight, and the guards that keep it that way.
+ *
+ * `VerificationRequestEvent.Change` fires for every update, not once per
+ * phase, so everything reached from it has to be idempotent. Without these
+ * flags the code below re-entered on each change: it sent a second
+ * `m.key.verification.start`, attached a second `ShowSas` listener, and called
+ * `verifier.verify()` again on a verifier that was already running — which
+ * cancels the exchange. That is why verification failed partway through.
+ */
+let sasStarted = false;
+let drivenVerifier: unknown = null;
+
 function attach(current: VerificationRequest): void {
+	sasStarted = false;
+	drivenVerifier = null;
+
 	const onChange = () => {
 		if (current !== request) return;
 		verify.otherDeviceId = current.otherDeviceId ?? verify.otherDeviceId;
@@ -197,10 +223,16 @@ function attach(current: VerificationRequest): void {
 		switch (current.phase) {
 			case VerificationPhase.Ready:
 				verify.stage = "ready";
-				// Both sides may call this: the SDK handles the race where two
-				// m.key.verification.start events cross, and whichever loses
-				// still ends up with a verifier on the request.
-				void beginSas(current);
+				/*
+				 * Only the side that sent the request sends the start.
+				 *
+				 * The spec puts `m.key.verification.start` on the initiator. If
+				 * both ends send one, the two race and the loser's exchange is
+				 * cancelled — which looked exactly like "verification is
+				 * broken", because it was.
+				 */
+				if (current.initiatedByMe) void beginSas(current);
+				else hookVerifier(current);
 				break;
 			case VerificationPhase.Started:
 				hookVerifier(current);
@@ -225,20 +257,24 @@ function attach(current: VerificationRequest): void {
 }
 
 async function beginSas(current: VerificationRequest): Promise<void> {
+	if (sasStarted) return;
+	if (current.verifier) {
+		hookVerifier(current);
+		return;
+	}
+
+	sasStarted = true;
 	try {
-		if (current.verifier) {
-			hookVerifier(current);
-			return;
-		}
 		await current.startVerification("m.sas.v1");
 		hookVerifier(current);
 	} catch (error) {
-		// A race where both sides start is normal and self-resolving; the
-		// request's own phase change will bring us back here with a verifier.
+		// If the other side started at the same moment, the request still ends
+		// up with a verifier and the exchange can continue from it.
 		if (current.verifier) {
 			hookVerifier(current);
 			return;
 		}
+		sasStarted = false;
 		verify.stage = "error";
 		verify.error = message(error);
 	}
@@ -248,11 +284,14 @@ function hookVerifier(current: VerificationRequest): void {
 	const verifier = current.verifier;
 	if (!verifier) return;
 
+	// Driving the same verifier twice cancels it. This is reached from several
+	// phase changes, so the guard is the point.
+	if (drivenVerifier === verifier) return;
+	drivenVerifier = verifier;
+
 	const existing = verifier.getShowSasCallbacks();
-	if (existing) {
-		show(existing);
-		return;
-	}
+	if (existing) show(existing);
+
 	verifier.on(VerifierEvent.ShowSas, show);
 	// The verifier only produces the SAS once it is driven, and this resolves
 	// when the whole exchange finishes.

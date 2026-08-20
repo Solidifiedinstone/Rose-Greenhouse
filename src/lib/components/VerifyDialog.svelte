@@ -108,13 +108,16 @@
 			</p>
 			{#if verify.otherDevices === 0}
 				<p class="bad">
-					This looks like your only signed-in session, so there is nothing to
-					verify against. Sign in with another client — Element on a phone
-					works — then come back here. Restoring from a recovery key isn't
-					built yet.
+					I can't see another signed-in session for your account, and
+					verification needs one to compare against. If you do have another
+					client open, start it anyway — the request will simply wait for it.
+					Restoring from a recovery key instead isn't built yet.
 				</p>
 				<div class="actions">
 					<button class="button" onclick={close}>Close</button>
+					<button class="button primary" onclick={() => start(getClient())}>
+						Start anyway
+					</button>
 				</div>
 			{:else}
 				<p class="dim">
