@@ -128,6 +128,13 @@ export interface MessageView {
 	replyPreview: { sender: string; body: string } | null;
 	/** Emoji reactions, already grouped and counted. */
 	reactions: Reaction[];
+	/**
+	 * Set on a message that has a thread hanging off it.
+	 *
+	 * Only ever present on the *root* — replies inside a thread live in the
+	 * thread's own timeline, not the room's, so they never carry this.
+	 */
+	thread: { replies: number; lastActivity: number } | null;
 	/** True when you sent it — gates edit and delete later. */
 	mine: boolean;
 	/**

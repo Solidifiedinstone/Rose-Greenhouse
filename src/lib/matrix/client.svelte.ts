@@ -515,7 +515,12 @@ function attachListeners(active: MatrixClient): void {
 		data: { liveEvent?: boolean } | undefined
 	) => {
 		scheduleRoomRebuild();
-		if (room && room.roomId === mx.activeRoomId) scheduleTimelineRebuild();
+		if (room && room.roomId === mx.activeRoomId) {
+			scheduleTimelineRebuild();
+			// A reply lands in the thread's timeline, not the room's, so the
+			// open panel has to be told separately or it silently goes stale.
+			if (threadView.rootId) rebuildThread();
+		}
 
 		// Only live events: back-pagination replays history through this same
 		// callback, and notifying about a month of scrollback would be absurd.
@@ -1176,6 +1181,8 @@ export function markRoomRead(roomId: string): void {
 export function openRoom(roomId: string | null): void {
 	// Views are per-room; keeping another room's cache would only be memory.
 	viewCache.clear();
+	threadView.rootId = null;
+	threadView.messages = [];
 	mx.activeRoomId = roomId;
 	mx.timeline = [];
 	mx.typing = [];
@@ -1371,6 +1378,7 @@ function eventToView(event: MatrixEvent, room: Room): MessageView | null {
 		replyTo: content["m.relates_to"]?.["m.in_reply_to"]?.event_id ?? null,
 		replyPreview: replyPreviewFor(content, room),
 		reactions: reactionsFor(event, room),
+		thread: threadFor(event, room),
 		mine: sender === mx.userId,
 		continuation: false
 	};
@@ -1421,6 +1429,25 @@ export function stripReplyFallback(body: string): string {
 	while (index < lines.length && lines[index].startsWith(">")) index += 1;
 	while (index < lines.length && lines[index].trim() === "") index += 1;
 	return lines.slice(index).join("\n");
+}
+
+/**
+ * The thread hanging off a message, if any.
+ *
+ * A thread's replies live in their own timeline rather than the room's, so a
+ * root shows a summary and the replies are only fetched when the panel opens.
+ * That is also why the main timeline stays readable in a room where a long
+ * thread is running: none of it is inline.
+ */
+function threadFor(event: MatrixEvent, room: Room): MessageView["thread"] {
+	const id = event.getId();
+	if (!id) return null;
+	const thread = room.getThread(id);
+	if (!thread || thread.length === 0) return null;
+	return {
+		replies: thread.length,
+		lastActivity: thread.replyToEvent?.getTs() ?? event.getTs()
+	};
 }
 
 /** Reactions on one event, grouped by emoji. */
@@ -1562,6 +1589,82 @@ export async function deleteMessage(eventId: string): Promise<void> {
 		mx.error = describe(error);
 		throw error;
 	}
+}
+
+/** Messages in one thread, oldest first. */
+export const threadView = $state({
+	rootId: null as string | null,
+	rootBody: "",
+	messages: [] as MessageView[],
+	loading: false
+});
+
+/**
+ * Open a thread and load it.
+ *
+ * The replies are not in the room timeline, so they have to be fetched the
+ * first time — `thread.length` on the root is a server-provided summary and
+ * does not mean the events are here.
+ */
+export async function openThread(rootId: string | null): Promise<void> {
+	threadView.rootId = rootId;
+	threadView.messages = [];
+	threadView.rootBody = "";
+	if (!client || !mx.activeRoomId || !rootId) return;
+
+	const room = client.getRoom(mx.activeRoomId);
+	const thread = room?.getThread(rootId);
+	if (!room || !thread) return;
+
+	threadView.rootBody = stripReplyFallback(
+		String(thread.rootEvent?.getContent()?.body ?? "")
+	).slice(0, 200);
+
+	threadView.loading = true;
+	try {
+		await client.paginateEventTimeline(thread.liveTimeline, { backwards: true, limit: 50 });
+	} catch (error) {
+		mx.error = describe(error);
+	} finally {
+		threadView.loading = false;
+	}
+	rebuildThread();
+}
+
+function rebuildThread(): void {
+	if (!client || !mx.activeRoomId || !threadView.rootId) {
+		threadView.messages = [];
+		return;
+	}
+	const room = client.getRoom(mx.activeRoomId);
+	const thread = room?.getThread(threadView.rootId);
+	if (!room || !thread) {
+		threadView.messages = [];
+		return;
+	}
+
+	const views: MessageView[] = [];
+	for (const event of thread.timeline) {
+		// The root is shown as a header, not as the first reply.
+		if (event.getId() === threadView.rootId) continue;
+		const view = eventToView(event, room);
+		if (view) views.push(view);
+	}
+	threadView.messages = markContinuations(views);
+}
+
+/** Send into the open thread rather than the room. */
+export async function sendThreadMessage(body: string): Promise<void> {
+	const text = body.trim();
+	if (!client || !mx.activeRoomId || !threadView.rootId || !text) return;
+	await client.sendMessage(mx.activeRoomId, threadView.rootId, {
+		msgtype: MsgType.Text,
+		body: text,
+		...(hasMarkdown(text)
+			? { format: "org.matrix.custom.html", formatted_body: renderMarkdown(text) }
+			: {})
+	} as never);
+	rebuildThread();
 }
 
 export async function sendMessage(body: string): Promise<void> {

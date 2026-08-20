@@ -4,6 +4,7 @@
 	import Composer from "./Composer.svelte";
 	import MemberList from "./MemberList.svelte";
 	import SearchPanel from "./SearchPanel.svelte";
+	import ThreadPanel from "./ThreadPanel.svelte";
 	import RoomList from "./RoomList.svelte";
 	import MyProfileDialog from "./MyProfileDialog.svelte";
 	import StatusMenu from "./StatusMenu.svelte";
@@ -13,7 +14,7 @@
 	import Settings from "./Settings.svelte";
 	import VerifyDialog from "./VerifyDialog.svelte";
 	import Timeline from "./Timeline.svelte";
-	import { openRoom, sendFiles, mx } from "$lib/matrix/client.svelte";
+	import { openRoom, sendFiles, mx, threadView } from "$lib/matrix/client.svelte";
 	import { verify } from "$lib/matrix/verification.svelte";
 	import type { MessageView } from "$lib/matrix/views";
 	import { PRESENCE_COLOURS, profile } from "$lib/matrix/profile.svelte";
@@ -225,6 +226,10 @@
 			</div>
 		{/if}
 	</main>
+
+	{#if activeRoom && threadView.rootId}
+		<ThreadPanel onuser={(userId) => (viewingUser = userId)} />
+	{/if}
 
 	{#if activeRoom && membersOpen}
 		<MemberList onuser={(userId) => (viewingUser = userId)} />

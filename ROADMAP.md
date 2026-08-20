@@ -48,6 +48,8 @@ that only look like they work.
   out of one without touching the rest. Each account gets its own crypto
   store, so device keys can never collide
 - Tray icon with the unread count in its tooltip, and a menu to reopen or quit
+- Threads — a reply count on the root, and a side panel for the conversation,
+  so a long thread never floods the room
 - **Quiet hours** — notifications are held, not dropped, and released as one
   summary when the window ends
 - Desktop notifications driven by your Matrix push rules, per-room mute as a
@@ -62,8 +64,8 @@ that only look like they work.
 
 ## Next
 
-**Threads**, then scheduled messages, then background sync for inactive
-accounts (level 2 below).
+**Scheduled messages**, then background sync for inactive accounts (level 2
+below), then activity status.
 
 ---
 
@@ -72,7 +74,6 @@ accounts (level 2 below).
 ### Table stakes
 Nothing below is exotic; the app isn't daily-driveable without them.
 
-- Threads
 
 ### The differentiators
 The reasons to use this over Element.

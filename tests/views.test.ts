@@ -69,6 +69,7 @@ function message(partial: Partial<MessageView> & { id: string }): MessageView {
 		replyTo: null,
 		replyPreview: null,
 		reactions: [],
+		thread: null,
 		mine: false,
 		continuation: false,
 		...partial

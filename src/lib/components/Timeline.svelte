@@ -2,7 +2,14 @@
 	import Attachment from "./Attachment.svelte";
 	import EmojiPicker from "./EmojiPicker.svelte";
 	import Avatar from "./Avatar.svelte";
-	import { deleteMessage, editMessage, loadMore, mx, toggleReaction } from "$lib/matrix/client.svelte";
+	import {
+		deleteMessage,
+		editMessage,
+		loadMore,
+		mx,
+		openThread,
+		toggleReaction
+	} from "$lib/matrix/client.svelte";
 	import ConfirmDialog from "./ConfirmDialog.svelte";
 	import EditHistory from "./EditHistory.svelte";
 	import { uploads } from "$lib/matrix/upload.svelte";
@@ -238,6 +245,16 @@
 				{/if}
 				{#if message.failed}<span class="edited failed-note">not sent</span>{/if}
 
+				{#if message.thread}
+					<button class="thread-summary" onclick={() => openThread(message.id)}>
+						<span class="thread-count">
+							{message.thread.replies}
+							{message.thread.replies === 1 ? "reply" : "replies"}
+						</span>
+						<span class="thread-when">{formatTimestamp(message.thread.lastActivity)}</span>
+					</button>
+				{/if}
+
 				{#if message.reactions.length}
 					<div class="reactions">
 						{#each message.reactions as reaction (reaction.key)}
@@ -288,6 +305,12 @@
 						onclick={() => (deleting = message)}
 					>🗑</button>
 				{/if}
+				<button
+					class="action"
+					title="Reply in thread"
+					aria-label="Reply in thread"
+					onclick={() => openThread(message.id)}
+				>⌥</button>
 				<button
 					class="action"
 					title="React"
@@ -447,6 +470,32 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.thread-summary {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-top: 5px;
+		padding: 3px 9px;
+		border-radius: 999px;
+		border: var(--border-width, 1px) solid var(--border);
+		background: var(--raised);
+		font-size: 12px;
+	}
+
+	.thread-summary:hover {
+		border-color: var(--accent);
+	}
+
+	.thread-count {
+		color: var(--accent);
+		font-weight: var(--bold-weight, 700);
+	}
+
+	.thread-when {
+		color: var(--text-faint);
+		font-size: 11px;
 	}
 
 	.reactions {
