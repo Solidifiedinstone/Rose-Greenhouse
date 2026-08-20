@@ -33,6 +33,11 @@ that only look like they work.
   redaction does and doesn't remove
 - Create rooms (public or private, encryption decided at creation), join by
   address or pasted link, and browse the public directory
+- Member list with power levels, grouped by role
+- Markdown composer with live preview, rendered through an escape-first
+  pipeline rather than trusting anyone's HTML
+- Local search (Ctrl+F) across everything loaded, encrypted rooms included —
+  which server-side search cannot do
 - Desktop notifications driven by your Matrix push rules, per-room mute as a
   real push rule, and a DND status that silences everything
 - Profile: avatar, banner, about, pronouns, and per-element styling published
@@ -45,7 +50,8 @@ that only look like they work.
 
 ## Next
 
-**Member list with power levels**, then a markdown composer and search.
+**Multiple accounts** — the restructure gets more expensive with every feature
+added, so it goes before the rest. Then threads, tray and unread badge.
 
 ---
 
@@ -55,9 +61,7 @@ that only look like they work.
 Nothing below is exotic; the app isn't daily-driveable without them.
 
 - Threads
-- Member list with power levels
 - Notifications, tray icon, unread badge
-- Markdown composer with preview
 - Spaces filtering the room list — the rail exists, the filter isn't wired
 
 ### The differentiators

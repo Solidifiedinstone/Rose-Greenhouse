@@ -6,6 +6,7 @@
 	import ConfirmDialog from "./ConfirmDialog.svelte";
 	import { uploads } from "$lib/matrix/upload.svelte";
 	import { formatTimestamp, type MessageView } from "$lib/matrix/views";
+	import { renderMarkdown } from "$lib/matrix/markdown";
 	import { activeTheme } from "$lib/theme/theme.svelte";
 
 	interface Props {
@@ -176,6 +177,15 @@
 					<Attachment {message} />
 				{:else if message.kind === "emote"}
 					<p class="body emote">* {message.senderName} {message.body}</p>
+				{:else if message.html}
+					<!--
+						The sender's formatted body, re-rendered through our own
+						markdown pipeline rather than trusted as HTML: a remote
+						`formatted_body` is arbitrary markup from a stranger.
+					-->
+					<p class="body" class:notice={message.kind === "notice"}>
+						{@html renderMarkdown(message.body)}
+					</p>
 				{:else}
 					<p class="body" class:notice={message.kind === "notice"}>{message.body}</p>
 				{/if}
@@ -529,6 +539,39 @@
 		margin: 2px 0 0;
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
+	}
+
+	.body :global(code) {
+		font-family: var(--mono-family);
+		background: var(--code-bg);
+		padding: 1px 5px;
+		border-radius: 5px;
+		font-size: 0.9em;
+	}
+
+	.body :global(pre) {
+		margin: 4px 0;
+		padding: 8px 10px;
+		background: var(--code-bg);
+		border-radius: var(--radius);
+		overflow-x: auto;
+	}
+
+	.body :global(blockquote) {
+		margin: 3px 0;
+		padding-left: 9px;
+		border-left: 2px solid var(--border-strong);
+		color: var(--text-dim);
+	}
+
+	.body :global(ul),
+	.body :global(ol) {
+		margin: 3px 0;
+		padding-left: 22px;
+	}
+
+	.body :global(a) {
+		color: var(--link);
 	}
 
 	.body.notice {

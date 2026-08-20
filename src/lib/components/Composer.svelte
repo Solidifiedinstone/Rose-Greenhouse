@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { describe, sendFiles, sendMessage, sendReply, mx } from "$lib/matrix/client.svelte";
 	import type { MessageView } from "$lib/matrix/views";
+	import { hasMarkdown, renderMarkdown } from "$lib/matrix/markdown";
 
 	interface Props {
 		roomName: string;
@@ -17,6 +18,9 @@
 	let failure = $state("");
 	let box: HTMLTextAreaElement | null = $state(null);
 	let picker: HTMLInputElement | null = $state(null);
+	let preview = $state(false);
+
+	const formatted = $derived(hasMarkdown(draft) ? renderMarkdown(draft) : "");
 
 	function chosen(event: Event) {
 		const input = event.target as HTMLInputElement;
@@ -89,6 +93,10 @@
 	{#if failure}
 		<p class="error-text">{failure}</p>
 	{/if}
+	{#if preview && formatted}
+		<div class="preview selectable">{@html formatted}</div>
+	{/if}
+
 	<div class="row">
 		<input
 			type="file"
@@ -118,12 +126,22 @@
 			placeholder={`Message ${roomName}`}
 			disabled={mx.phase !== "ready"}
 		></textarea>
+		{#if formatted}
+			<button
+				class="button"
+				class:on={preview}
+				title="Preview formatting"
+				onclick={() => (preview = !preview)}
+			>
+				◑
+			</button>
+		{/if}
 		<button class="button primary" onclick={send} disabled={!draft.trim() || sending}>
 			Send
 		</button>
 	</div>
 	<p class="hint faint">
-		Enter sends · Shift+Enter for a new line · drop or paste files to send
+		Enter sends · Shift+Enter for a new line · **bold**, `code`, > quote, - list
 		{#if encrypted}· 🔒 encrypted{/if}
 		{#if mx.typing.length}
 			· {mx.typing.slice(0, 3).join(", ")}
@@ -199,6 +217,43 @@
 
 	.cancel:hover {
 		color: var(--danger);
+	}
+
+	.preview {
+		margin-bottom: 8px;
+		padding: 9px 11px;
+		background: var(--raised);
+		border: var(--border-width, 1px) dashed var(--border-strong);
+		border-radius: var(--radius);
+		font-size: 13px;
+		line-height: 1.5;
+	}
+
+	.preview :global(code) {
+		font-family: var(--mono-family);
+		background: var(--code-bg);
+		padding: 1px 5px;
+		border-radius: 5px;
+	}
+
+	.preview :global(pre) {
+		margin: 4px 0;
+		padding: 8px 10px;
+		background: var(--code-bg);
+		border-radius: var(--radius);
+		overflow-x: auto;
+	}
+
+	.preview :global(blockquote) {
+		margin: 3px 0;
+		padding-left: 9px;
+		border-left: 2px solid var(--border-strong);
+		color: var(--text-dim);
+	}
+
+	.button.on {
+		border-color: var(--accent);
+		color: var(--accent);
 	}
 
 	.attach {

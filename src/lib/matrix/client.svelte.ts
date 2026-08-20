@@ -35,12 +35,15 @@ import {
 
 import { clearSession, loadSession, saveSession, type StoredSession } from "./session";
 import { considerEvent, isRoomMuted, loadNotificationPrefs, setRoomMuted } from "./notify.svelte";
+import { hasMarkdown, renderMarkdown } from "./markdown";
 import { loadProfile, resetProfile } from "./profile.svelte";
 import { refreshStatus, reset as resetVerification, watchForRequests } from "./verification.svelte";
 import { forgetAttachments, sendFile } from "./upload.svelte";
 import {
 	markContinuations,
+	sortMembers,
 	sortRooms,
+	type MemberView,
 	type MessageView,
 	type Reaction,
 	type RoomView
@@ -83,6 +86,8 @@ export const mx = $state({
 
 	/** Who is typing in the active room, excluding you. */
 	typing: [] as string[],
+	/** Members of the active room, sorted by power then name. */
+	members: [] as MemberView[],
 
 	/** Rooms hidden from this device's sidebar. */
 	hidden: [] as string[],
@@ -328,6 +333,7 @@ export async function logout(): Promise<void> {
 		mx.timeline = [];
 		mx.activeRoomId = null;
 		mx.activeSpaceId = null;
+		mx.members = [];
 		mx.cryptoReady = false;
 		mx.error = "";
 	}
@@ -375,6 +381,11 @@ function attachListeners(active: MatrixClient): void {
 	}) as never);
 
 	on(RoomEvent.Name, (() => scheduleRoomRebuild()) as never);
+	// Membership and power changes only matter for the room being looked at.
+	on("RoomState.members", ((_event: MatrixEvent, state: { roomId?: string }) => {
+		if (state?.roomId === mx.activeRoomId) rebuildMembers();
+	}) as never);
+	on("RoomMember.powerLevel", (() => rebuildMembers()) as never);
 	on(RoomEvent.Receipt, (() => scheduleRoomRebuild()) as never);
 	on(RoomEvent.MyMembership, (() => scheduleRoomRebuild()) as never);
 	on(ClientEvent.Room, (() => scheduleRoomRebuild()) as never);
@@ -680,6 +691,60 @@ export async function searchDirectory(
 	}
 }
 
+// ── Search ───────────────────────────────────────────────────────
+
+export interface SearchHit {
+	eventId: string;
+	roomId: string;
+	roomName: string;
+	sender: string;
+	body: string;
+	timestamp: number;
+}
+
+/**
+ * Search the history this client already has.
+ *
+ * Deliberately local. The server-side search API cannot see inside encrypted
+ * rooms — the homeserver has only ciphertext — so a server search silently
+ * skips exactly the conversations most worth finding. Searching what has been
+ * decrypted here covers those, at the cost of only reaching as far back as
+ * what has been synced. The UI says which it is rather than implying it
+ * searched everything.
+ */
+export function searchLocal(term: string, roomId?: string): SearchHit[] {
+	if (!client) return [];
+	const needle = term.trim().toLowerCase();
+	if (needle.length < 2) return [];
+
+	const rooms = roomId
+		? [client.getRoom(roomId)].filter(Boolean)
+		: client.getRooms().filter((room) => room.getMyMembership() === "join");
+
+	const hits: SearchHit[] = [];
+	for (const room of rooms as Room[]) {
+		for (const event of room.getLiveTimeline().getEvents()) {
+			if (event.getType() !== EventType.RoomMessage) continue;
+			if (event.isRedacted() || event.isDecryptionFailure()) continue;
+
+			const body = String(event.getContent().body ?? "");
+			if (!body.toLowerCase().includes(needle)) continue;
+
+			const sender = event.getSender() ?? "";
+			hits.push({
+				eventId: event.getId() ?? "",
+				roomId: room.roomId,
+				roomName: room.name || room.roomId,
+				sender: room.getMember(sender)?.name ?? sender,
+				body: stripReplyFallback(body).replace(/\s+/g, " ").slice(0, 200),
+				timestamp: event.getTs()
+			});
+			if (hits.length >= 200) break;
+		}
+	}
+	return hits.sort((a, b) => b.timestamp - a.timestamp);
+}
+
 // ── Managing a room ──────────────────────────────────────────────
 //
 // Matrix semantics differ from Discord's in one way that matters, and the UI
@@ -867,8 +932,44 @@ export function openRoom(roomId: string | null): void {
 	mx.canLoadMore = true;
 	if (roomId) {
 		rebuildTimeline();
+		rebuildMembers();
 		markRead(roomId);
 	}
+}
+
+/** Members of the active room, flattened for the UI. */
+function rebuildMembers(): void {
+	if (!client || !mx.activeRoomId) {
+		mx.members = [];
+		return;
+	}
+	const room = client.getRoom(mx.activeRoomId);
+	if (!room) {
+		mx.members = [];
+		return;
+	}
+
+	const views: MemberView[] = [];
+	for (const membership of ["join", "invite"] as const) {
+		for (const member of room.getMembersWithMembership(membership as never)) {
+			views.push({
+				userId: member.userId,
+				name: member.name,
+				avatar: member.getMxcAvatarUrl() ?? null,
+				power: member.powerLevel,
+				membership,
+				presence: presenceOf(member.userId)
+			});
+		}
+	}
+	mx.members = sortMembers(views);
+}
+
+function presenceOf(userId: string): MemberView["presence"] {
+	const user = client?.getUser(userId);
+	const value = user?.presence;
+	if (value === "online" || value === "unavailable" || value === "offline") return value;
+	return "unknown";
 }
 
 function rebuildTimeline(): void {
@@ -1162,7 +1263,20 @@ export async function sendMessage(body: string): Promise<void> {
 
 	// Sent optimistically: the SDK creates a local echo immediately, which is
 	// why the timeline rebuild below shows it before the server replies.
-	await client.sendTextMessage(mx.activeRoomId, text);
+	//
+	// `body` stays plain text in every case — it is what clients without HTML
+	// support display, so dropping the markdown source there would leave them
+	// with nothing.
+	if (hasMarkdown(text)) {
+		await client.sendMessage(mx.activeRoomId, {
+			msgtype: MsgType.Text,
+			body: text,
+			format: "org.matrix.custom.html",
+			formatted_body: renderMarkdown(text)
+		} as never);
+	} else {
+		await client.sendTextMessage(mx.activeRoomId, text);
+	}
 	scheduleTimelineRebuild();
 }
 

@@ -9,8 +9,12 @@
 
 import { describe, expect, it } from "vitest";
 
+import { hasMarkdown, renderMarkdown } from "../src/lib/matrix/markdown";
 import {
 	GROUPING_WINDOW_MS,
+	powerLabel,
+	sortMembers,
+	type MemberView,
 	colourForId,
 	formatSize,
 	initials,
@@ -239,6 +243,88 @@ describe("notifications", () => {
 			getContent: () => ({ body: "x".repeat(400) })
 		} as never);
 		expect(long.length).toBeLessThanOrEqual(140);
+	});
+});
+
+describe("markdown", () => {
+	/*
+	 * The security property of the renderer is that it escapes before it
+	 * formats. These tests exist to keep that ordering — reversing it would
+	 * make every message an injection.
+	 */
+	it("escapes HTML before formatting, so markup in a message is inert", () => {
+		const html = renderMarkdown('<img src=x onerror="alert(1)">');
+		expect(html).not.toContain("<img");
+		expect(html).toContain("&lt;img");
+	});
+
+	it("refuses a javascript: link", () => {
+		const html = renderMarkdown("[click](javascript:alert(1))");
+		// No anchor is the property that matters. The literal text is left
+		// visible on purpose — silently deleting what somebody wrote would be
+		// worse than showing an inert string.
+		expect(html).not.toContain("<a");
+		expect(html).toContain("javascript:alert(1)");
+	});
+
+	it("refuses a data: link", () => {
+		const html = renderMarkdown("[x](data:text/html,<script>)");
+		expect(html).not.toContain("<a");
+		expect(html).not.toContain("<script>");
+	});
+
+	it("does not format inside a code span", () => {
+		const html = renderMarkdown("`**not bold**`");
+		expect(html).toContain("<code>");
+		expect(html).not.toContain("<strong>");
+	});
+
+	it("handles the everyday formatting", () => {
+		expect(renderMarkdown("**bold**")).toContain("<strong>bold</strong>");
+		expect(renderMarkdown("*italic*")).toContain("<em>italic</em>");
+		expect(renderMarkdown("~~gone~~")).toContain("<del>gone</del>");
+		expect(renderMarkdown("> quoted")).toContain("<blockquote>");
+		expect(renderMarkdown("- one")).toContain("<li>one</li>");
+		expect(renderMarkdown("1. one")).toContain("<ol>");
+	});
+
+	it("keeps an unterminated code fence rather than swallowing it", () => {
+		expect(renderMarkdown("```\nhalf typed")).toContain("half typed");
+	});
+
+	it("only claims markdown when there is some", () => {
+		expect(hasMarkdown("just text")).toBe(false);
+		expect(hasMarkdown("**bold**")).toBe(true);
+		expect(hasMarkdown("`code`")).toBe(true);
+	});
+});
+
+describe("members", () => {
+	const member = (partial: Partial<MemberView> & { userId: string }): MemberView => ({
+		name: partial.userId,
+		avatar: null,
+		power: 0,
+		membership: "join",
+		presence: "unknown",
+		...partial
+	});
+
+	it("names the conventional power levels and shows unusual ones raw", () => {
+		expect(powerLabel(100)).toBe("Admin");
+		expect(powerLabel(50)).toBe("Moderator");
+		expect(powerLabel(0)).toBe("");
+		// A room may use any number; forcing it into a name would misdescribe it.
+		expect(powerLabel(25)).toBe("Level 25");
+	});
+
+	it("sorts joined before invited, then by power, then by name", () => {
+		const sorted = sortMembers([
+			member({ userId: "@z", name: "Zoe" }),
+			member({ userId: "@i", name: "Ivy", membership: "invite" }),
+			member({ userId: "@a", name: "Ann", power: 100 }),
+			member({ userId: "@m", name: "Moe", power: 50 })
+		]);
+		expect(sorted.map((m) => m.name)).toEqual(["Ann", "Moe", "Zoe", "Ivy"]);
 	});
 });
 

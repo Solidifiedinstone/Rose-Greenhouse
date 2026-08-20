@@ -2,6 +2,8 @@
 	import Avatar from "./Avatar.svelte";
 	import RoseMark from "./RoseMark.svelte";
 	import Composer from "./Composer.svelte";
+	import MemberList from "./MemberList.svelte";
+	import SearchPanel from "./SearchPanel.svelte";
 	import RoomList from "./RoomList.svelte";
 	import MyProfileDialog from "./MyProfileDialog.svelte";
 	import StatusMenu from "./StatusMenu.svelte";
@@ -26,6 +28,8 @@
 	let viewingUser: string | null = $state(null);
 	let replyTo: MessageView | null = $state(null);
 	let addRoomOpen = $state(false);
+	let membersOpen = $state(false);
+	let searchOpen = $state(false);
 
 	/**
 	 * Drag counter rather than a boolean.
@@ -57,6 +61,13 @@
 		if (verify.incoming && verify.stage !== "idle") verifyOpen = true;
 	});
 
+	function onKeydown(event: KeyboardEvent) {
+		if ((event.ctrlKey || event.metaKey) && event.key === "f") {
+			event.preventDefault();
+			searchOpen = true;
+		}
+	}
+
 	const activeRoom = $derived(mx.rooms.find((room) => room.id === mx.activeRoomId) ?? null);
 
 	// A reply targets one event in one room, so switching rooms must drop it —
@@ -67,6 +78,8 @@
 	});
 	const spaces = $derived(mx.rooms.filter((room) => room.isSpace));
 </script>
+
+<svelte:window onkeydown={onKeydown} />
 
 <div class="shell">
 	<!-- The narrow rail: spaces, then you. -->
@@ -165,6 +178,17 @@
 				{#if activeRoom.isEncrypted}
 					<span class="tag" title="End-to-end encrypted">🔒 Encrypted</span>
 				{/if}
+				<button class="header-button" title="Search (Ctrl+F)" onclick={() => (searchOpen = true)}>
+					⌕
+				</button>
+				<button
+					class="header-button"
+					class:on={membersOpen}
+					title="Members"
+					onclick={() => (membersOpen = !membersOpen)}
+				>
+					{mx.members.length || ""} ☰
+				</button>
 			</header>
 
 			<Timeline
@@ -191,6 +215,10 @@
 			</div>
 		{/if}
 	</main>
+
+	{#if activeRoom && membersOpen}
+		<MemberList onuser={(userId) => (viewingUser = userId)} />
+	{/if}
 </div>
 
 {#if settingsOpen}
@@ -235,6 +263,10 @@
 
 {#if profileEditOpen}
 	<ProfileDialog onclose={() => (profileEditOpen = false)} />
+{/if}
+
+{#if searchOpen}
+	<SearchPanel onclose={() => (searchOpen = false)} />
 {/if}
 
 {#if addRoomOpen}
@@ -449,6 +481,24 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+
+	.header-button {
+		flex: none;
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		padding: 4px 9px;
+		border-radius: var(--button-radius, var(--radius));
+		border: var(--border-width, 1px) solid var(--border);
+		color: var(--text-dim);
+		font-size: 11px;
+	}
+
+	.header-button:hover,
+	.header-button.on {
+		color: var(--text);
+		border-color: var(--accent);
 	}
 
 	.tag {

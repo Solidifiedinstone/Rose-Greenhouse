@@ -33,6 +33,40 @@ export interface RoomView {
 	membership: "join" | "invite" | "leave" | "unknown";
 }
 
+export interface MemberView {
+	userId: string;
+	name: string;
+	avatar: string | null;
+	/** 100 admin, 50 moderator, 0 default — Matrix's convention, not a rule. */
+	power: number;
+	membership: "join" | "invite";
+	/** Set from presence when the server publishes it. */
+	presence: "online" | "unavailable" | "offline" | "unknown";
+}
+
+/**
+ * The label for a power level.
+ *
+ * 100/50/0 are conventions rather than spec, and a room can use any number,
+ * so anything unusual is shown as the raw value instead of being forced into
+ * a name that would misdescribe it.
+ */
+export function powerLabel(power: number): string {
+	if (power >= 100) return "Admin";
+	if (power >= 50) return "Moderator";
+	if (power > 0) return `Level ${power}`;
+	return "";
+}
+
+/** Members sorted the way people look for them: power, then name. */
+export function sortMembers(members: MemberView[]): MemberView[] {
+	return [...members].sort((a, b) => {
+		if (a.membership !== b.membership) return a.membership === "join" ? -1 : 1;
+		if (a.power !== b.power) return b.power - a.power;
+		return a.name.localeCompare(b.name);
+	});
+}
+
 export interface Reaction {
 	key: string;
 	count: number;
