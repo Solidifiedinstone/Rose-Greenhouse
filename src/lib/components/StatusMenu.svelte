@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { getClient } from "$lib/matrix/client.svelte";
+	import Avatar from "./Avatar.svelte";
+	import { beginAddAccount, getClient, mx, signOutAccount, switchAccount } from "$lib/matrix/client.svelte";
 	import {
 		PRESENCE_COLOURS,
 		PRESENCE_HINTS,
@@ -120,6 +121,45 @@
 		/>
 	</label>
 
+	{#if mx.accounts.length}
+		<div class="accounts">
+			<span class="section">Accounts</span>
+			{#each mx.accounts as account (account.key)}
+				<div class="account" class:current={account.key === mx.activeAccount}>
+					<button
+						class="account-main"
+						disabled={mx.busy || account.key === mx.activeAccount}
+						onclick={() => {
+							onclose();
+							void switchAccount(account.key);
+						}}
+					>
+						<Avatar id={account.userId} name={account.userId} mxc={null} size={20} />
+						<span class="account-id">{account.userId}</span>
+						{#if account.key === mx.activeAccount}<span class="tick">✓</span>{/if}
+					</button>
+					<button
+						class="account-out"
+						title="Sign out of this account"
+						disabled={mx.busy}
+						onclick={() => {
+							onclose();
+							void signOutAccount(account.key);
+						}}
+					>×</button>
+				</div>
+			{/each}
+			<button
+				class="add"
+				disabled={mx.busy}
+				onclick={() => {
+					onclose();
+					beginAddAccount();
+				}}
+			>+ Add another account</button>
+		</div>
+	{/if}
+
 	<div class="foot">
 		<button class="button view" onclick={onview}>View profile</button>
 	</div>
@@ -228,6 +268,83 @@
 		font-size: 12px;
 		text-transform: none;
 		letter-spacing: 0;
+	}
+
+	.accounts {
+		margin-top: 8px;
+		padding-top: 8px;
+		border-top: var(--border-width, 1px) solid var(--border);
+	}
+
+	.section {
+		display: block;
+		padding: 0 8px 4px;
+		font-size: 10px;
+		letter-spacing: 0.5px;
+		text-transform: uppercase;
+		color: var(--text-faint);
+	}
+
+	.account {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+	}
+
+	.account-main {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 5px 8px;
+		border-radius: calc(var(--radius) * 0.7);
+		color: var(--text-dim);
+		text-align: left;
+	}
+
+	.account-main:hover:not(:disabled) {
+		background: var(--raised);
+		color: var(--text);
+	}
+
+	.account.current .account-main {
+		color: var(--text);
+	}
+
+	.account-id {
+		flex: 1;
+		min-width: 0;
+		font-size: 12px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.account-out {
+		flex: none;
+		width: 22px;
+		color: var(--text-faint);
+		font-size: 14px;
+		border-radius: 5px;
+	}
+
+	.account-out:hover:not(:disabled) {
+		color: var(--danger);
+	}
+
+	.add {
+		width: 100%;
+		margin-top: 4px;
+		padding: 6px 8px;
+		border-radius: calc(var(--radius) * 0.7);
+		color: var(--accent);
+		font-size: 12px;
+		text-align: left;
+	}
+
+	.add:hover:not(:disabled) {
+		background: var(--raised);
 	}
 
 	.foot {

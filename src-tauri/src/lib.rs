@@ -15,7 +15,9 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             session::save_session,
-            session::load_session,
+            session::load_sessions,
+            session::set_active_session,
+            session::remove_session,
             session::clear_session,
         ])
         .run(tauri::generate_context!())

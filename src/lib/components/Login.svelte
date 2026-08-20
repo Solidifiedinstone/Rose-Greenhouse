@@ -1,6 +1,6 @@
 <script lang="ts">
 	import RoseMark from "./RoseMark.svelte";
-	import { login, mx } from "$lib/matrix/client.svelte";
+	import { cancelAddAccount, login, mx } from "$lib/matrix/client.svelte";
 
 	let homeserver = $state("matrix.org");
 	let username = $state("");
@@ -27,7 +27,9 @@
 			<RoseMark size={86} />
 			<div>
 				<h1>Rose Greenhouse</h1>
-				<p class="faint">Sign in to your Matrix account.</p>
+				<p class="faint">
+					{mx.addingAccount ? "Sign in to another account." : "Sign in to your Matrix account."}
+				</p>
 			</div>
 		</div>
 
@@ -80,6 +82,12 @@
 		>
 			{mx.busy ? "Signing in…" : "Sign in"}
 		</button>
+
+		{#if mx.addingAccount}
+			<button class="button" type="button" onclick={cancelAddAccount} disabled={mx.busy}>
+				Back to {mx.accounts[0]?.userId ?? "your account"}
+			</button>
+		{/if}
 
 		<p class="note faint">
 			Your access token is stored by the app itself, with owner-only

@@ -34,7 +34,16 @@ import {
 	type MatrixClient
 } from "matrix-js-sdk";
 
-import { clearSession, loadSession, saveSession, type StoredSession } from "./session";
+import {
+	clearSessions,
+	cryptoPrefix,
+	loadSessions,
+	removeSession,
+	saveSession,
+	sessionKey,
+	setActiveSession,
+	type StoredSession
+} from "./session";
 import { considerEvent, isRoomMuted, loadNotificationPrefs, setRoomMuted } from "./notify.svelte";
 import { hasMarkdown, renderMarkdown } from "./markdown";
 import { loadProfile, resetProfile } from "./profile.svelte";
@@ -95,7 +104,13 @@ export const mx = $state({
 	/** Users blocked account-wide. */
 	ignored: [] as string[],
 	/** True when read receipts are private by default. */
-	receiptsOff: false
+	receiptsOff: false,
+
+	/** Every signed-in account, and which one is showing. */
+	accounts: [] as { key: string; userId: string; homeserver: string }[],
+	activeAccount: "" as string,
+	/** True while the login screen is adding a second account, not replacing. */
+	addingAccount: false
 });
 
 /** The live client. Never reactive — see rule 2. */
@@ -120,29 +135,123 @@ export function getClient(): MatrixClient | null {
  */
 export async function start(): Promise<void> {
 	mx.phase = "starting";
-	let stored: StoredSession | null = null;
+	let stored: Awaited<ReturnType<typeof loadSessions>> = { active: null, sessions: [] };
 	try {
-		stored = await loadSession();
+		stored = await loadSessions();
 	} catch (error) {
-		// A session we cannot read is the same as no session, and the user
-		// can act on the login screen but not on this error.
-		console.warn("could not read stored session", error);
+		// Sessions we cannot read are the same as none, and the user can act on
+		// the login screen but not on this error.
+		console.warn("could not read stored sessions", error);
 	}
 
-	if (!stored) {
+	mx.accounts = stored.sessions.map((session) => ({
+		key: sessionKey(session),
+		userId: session.user_id,
+		homeserver: session.homeserver
+	}));
+
+	const wanted =
+		stored.sessions.find((session) => sessionKey(session) === stored.active) ??
+		stored.sessions[0];
+
+	if (!wanted) {
 		mx.phase = "login";
 		return;
 	}
 
 	try {
-		await connect(stored);
+		await connect(wanted);
 	} catch (error) {
 		// The token may simply have been revoked from another device. Say so,
-		// and put them on the login screen rather than a dead end.
+		// and drop only that account rather than everything.
 		mx.phase = "login";
 		mx.error = describe(error);
-		await clearSession().catch(() => {});
+		await removeSession(sessionKey(wanted)).catch(() => {});
+		mx.accounts = mx.accounts.filter((account) => account.key !== sessionKey(wanted));
 	}
+}
+
+/**
+ * Switch to another signed-in account.
+ *
+ * The current client is stopped first: two sync loops against two homeservers
+ * would both be writing into the same reactive state, and whichever answered
+ * last would win.
+ */
+export async function switchAccount(key: string): Promise<void> {
+	if (key === mx.activeAccount) return;
+	const stored = await loadSessions();
+	const wanted = stored.sessions.find((session) => sessionKey(session) === key);
+	if (!wanted) return;
+
+	mx.busy = true;
+	try {
+		await stopClient();
+		await setActiveSession(key);
+		await connect(wanted);
+	} catch (error) {
+		mx.error = describe(error);
+		mx.phase = "login";
+	} finally {
+		mx.busy = false;
+	}
+}
+
+/** Put the login screen up without signing anything out. */
+export function beginAddAccount(): void {
+	mx.addingAccount = true;
+	mx.phase = "login";
+	mx.error = "";
+}
+
+export function cancelAddAccount(): void {
+	mx.addingAccount = false;
+	if (mx.accounts.length) void switchAccount(mx.accounts[0].key);
+}
+
+/** Sign out of one account, staying signed into the rest. */
+export async function signOutAccount(key: string): Promise<void> {
+	const isCurrent = key === mx.activeAccount;
+	mx.busy = true;
+	try {
+		if (isCurrent && client) {
+			await client.logout(true).catch((error) => console.warn("logout call failed", error));
+			await stopClient();
+		}
+		await removeSession(key);
+		mx.accounts = mx.accounts.filter((account) => account.key !== key);
+
+		if (!isCurrent) return;
+		const next = mx.accounts[0];
+		if (next) await switchAccount(next.key);
+		else await finishLogout();
+	} finally {
+		mx.busy = false;
+	}
+}
+
+/** Stop syncing and detach, without touching stored sessions. */
+async function stopClient(): Promise<void> {
+	if (client) {
+		// `stopClient` shuts the crypto stack down too. Each account already
+		// has its own IndexedDB via `cryptoDatabasePrefix`, so the stores can
+		// never interleave even if teardown were slow.
+		client.stopClient();
+	}
+	detachListeners();
+	resetVerification();
+	resetProfile();
+	forgetAttachments();
+	viewCache.clear();
+	client = null;
+
+	mx.rooms = [];
+	mx.timeline = [];
+	mx.members = [];
+	mx.activeRoomId = null;
+	mx.activeSpaceId = null;
+	mx.typing = [];
+	mx.cryptoReady = false;
 }
 
 /**
@@ -201,6 +310,9 @@ export async function login(
 			access_token: response.access_token
 		};
 		await saveSession(session);
+		// Only now is the previous account replaced: if login had failed, the
+		// account already signed in is still there and still syncing.
+		await stopClient();
 		await connect(session);
 	} catch (error) {
 		mx.error = describe(error);
@@ -239,7 +351,15 @@ async function connect(session: StoredSession): Promise<void> {
 	// are encrypted, and a client without crypto shows them as a wall of
 	// "unable to decrypt" — which looks like a bug, because it is one.
 	try {
-		await client.initRustCrypto();
+		/*
+		 * Each account gets its own crypto database.
+		 *
+		 * Without a distinct prefix two accounts share one store, and their
+		 * device keys collide. That does not fail loudly — it quietly stops
+		 * either account decrypting properly, which is the worst kind of bug
+		 * to ship in an encrypted client.
+		 */
+		await client.initRustCrypto({ cryptoDatabasePrefix: cryptoPrefix(session) });
 		mx.cryptoReady = true;
 	} catch (error) {
 		// Carry on unencrypted rather than refusing to start. The UI shows
@@ -278,6 +398,16 @@ async function connect(session: StoredSession): Promise<void> {
 		client?.off("crypto.devicesUpdated" as never, onKeys as never);
 		client?.off("crossSigning.keysChanged" as never, onKeys as never);
 	});
+
+	mx.activeAccount = sessionKey(session);
+	mx.addingAccount = false;
+	if (!mx.accounts.some((account) => account.key === mx.activeAccount)) {
+		mx.accounts.push({
+			key: mx.activeAccount,
+			userId: session.user_id,
+			homeserver: session.homeserver
+		});
+	}
 
 	mx.phase = "ready";
 	scheduleRoomRebuild();
@@ -318,29 +448,26 @@ export async function logout(): Promise<void> {
 			// Best effort: tell the server, but never let a failed request trap
 			// someone in an account they're trying to leave.
 			await client.logout(true).catch((error) => console.warn("logout call failed", error));
-			client.stopClient();
 		}
+		await stopClient();
+		await clearSessions().catch(() => {});
+		await finishLogout();
 	} finally {
-		detachListeners();
-		resetVerification();
-		resetProfile();
-		forgetAttachments();
-		client = null;
-		await clearSession().catch(() => {});
-
-		mx.phase = "login";
 		mx.busy = false;
-		mx.userId = "";
-		mx.displayName = "";
-		mx.avatarUrl = null;
-		mx.rooms = [];
-		mx.timeline = [];
-		mx.activeRoomId = null;
-		mx.activeSpaceId = null;
-		mx.members = [];
-		mx.cryptoReady = false;
-		mx.error = "";
 	}
+}
+
+/** Reset everything that outlives a single account. */
+async function finishLogout(): Promise<void> {
+	mx.phase = "login";
+	mx.userId = "";
+	mx.displayName = "";
+	mx.avatarUrl = null;
+	mx.accounts = [];
+	mx.activeAccount = "";
+	mx.addingAccount = false;
+	mx.ignored = [];
+	mx.error = "";
 }
 
 // ── Listeners ────────────────────────────────────────────────────

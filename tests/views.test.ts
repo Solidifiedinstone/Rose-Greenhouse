@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 
 import { hasMarkdown, renderMarkdown } from "../src/lib/matrix/markdown";
+import { cryptoPrefix, sessionKey } from "../src/lib/matrix/session";
 import {
 	GROUPING_WINDOW_MS,
 	powerLabel,
@@ -243,6 +244,38 @@ describe("notifications", () => {
 			getContent: () => ({ body: "x".repeat(400) })
 		} as never);
 		expect(long.length).toBeLessThanOrEqual(140);
+	});
+});
+
+describe("accounts", () => {
+	/*
+	 * The crypto prefix is the thing that keeps two signed-in accounts from
+	 * sharing one device-key store. A collision there does not fail loudly —
+	 * it quietly stops either account decrypting — so it gets a test.
+	 */
+	const session = (user: string, device: string) => ({
+		homeserver: "https://example.org",
+		user_id: user,
+		device_id: device,
+		access_token: "x"
+	});
+
+	it("keys a session by user and device, not user alone", () => {
+		expect(sessionKey(session("@a:example.org", "AAA"))).not.toBe(
+			sessionKey(session("@a:example.org", "BBB"))
+		);
+	});
+
+	it("gives every account a distinct crypto store", () => {
+		const one = cryptoPrefix(session("@a:example.org", "AAA"));
+		const two = cryptoPrefix(session("@b:example.org", "AAA"));
+		const same = cryptoPrefix(session("@a:example.org", "BBB"));
+		expect(new Set([one, two, same]).size).toBe(3);
+	});
+
+	it("produces a prefix safe for a database name", () => {
+		const prefix = cryptoPrefix(session("@a:example.org", "AA/BB:CC"));
+		expect(prefix).toMatch(/^[a-zA-Z0-9-]+$/);
 	});
 });
 

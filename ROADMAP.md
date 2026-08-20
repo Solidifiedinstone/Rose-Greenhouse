@@ -44,6 +44,9 @@ that only look like they work.
 - Edit history on any edited message
 - Windowed timeline, so a long scrollback doesn't put thousands of rows in
   the DOM
+- **Multiple accounts** — sign into several, switch from the status menu, sign
+  out of one without touching the rest. Each account gets its own crypto
+  store, so device keys can never collide
 - Desktop notifications driven by your Matrix push rules, per-room mute as a
   real push rule, and a DND status that silences everything
 - Profile: avatar, banner, about, pronouns, and per-element styling published
@@ -56,8 +59,8 @@ that only look like they work.
 
 ## Next
 
-**Multiple accounts** — the restructure gets more expensive with every feature
-added. Then threads, tray and unread badge, scheduled messages, quiet hours.
+**Background sync for inactive accounts** (level 2 below), then threads, tray
+and unread badge, scheduled messages and quiet hours.
 
 ---
 
@@ -72,7 +75,6 @@ Nothing below is exotic; the app isn't daily-driveable without them.
 ### The differentiators
 The reasons to use this over Element.
 
-- **Multiple accounts at once** — see the note below
 - **Recovery-key restore**, for verifying when this is your only session
 - **Local-first search** over your own history, with no server-side index
 - **Scheduled messages** — write now, send at a time, or when next online
@@ -143,11 +145,17 @@ client takes an account id instead. That's a mechanical change, but it touches
 every call site — which is why it is much cheaper to do before there are forty
 features calling into it than after.
 
-**The plan:** restructure for it early — before the table-stakes features pile
-up — but ship level 1 first, then 2. Level 3 only if it turns out to be wanted;
-the badging complexity may not be worth it.
+**Where this got to:** level 1 is built. Several accounts can be signed in,
+you switch from the status menu, and signing out of one leaves the others
+alone. Only the active account syncs.
 
-**The one real hazard:** the stored session becomes a list, and the Rust side
-must keep the accounts separate — one file per account, still `0600`. Each
-account also needs its own crypto store, or the encryption state of two
-accounts will collide and neither will decrypt correctly.
+Level 2 — every account syncing at once, so unread counts and notifications
+are live for all of them — is next. Level 3 only if it turns out to be
+wanted; the badging complexity may not be worth it.
+
+**The hazard, and what was done about it:** each account needs its own crypto
+store, or two accounts' device keys collide and neither decrypts correctly —
+silently. Every client is created with a `cryptoDatabasePrefix` derived from
+user id *and* device id, and there is a test asserting those prefixes are
+distinct. Sessions live in one `sessions.json` at `0600`, so "which account
+was I using?" is answered atomically with the list itself.
