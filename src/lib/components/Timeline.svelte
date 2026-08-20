@@ -61,6 +61,34 @@
 	let pinned = $state(true);
 
 	/**
+	 * How many messages are actually in the DOM.
+	 *
+	 * A room paginated back a few times holds thousands of events, and
+	 * rendering every one is where this stops being usable on the old hardware
+	 * it targets — thousands of rows, each with an avatar and reaction pills,
+	 * laid out on every update.
+	 *
+	 * A window is not full virtualisation, but it bounds the DOM at a size
+	 * that stays smooth while keeping scrollback working: reaching the top
+	 * widens the window first, and only asks the server for more once
+	 * everything already loaded is on screen.
+	 */
+	const WINDOW_STEP = 120;
+	let windowSize = $state(WINDOW_STEP);
+
+	const visible = $derived(
+		mx.timeline.length > windowSize ? mx.timeline.slice(-windowSize) : mx.timeline
+	);
+	const hiddenAbove = $derived(Math.max(0, mx.timeline.length - visible.length));
+
+	// A different room starts from a fresh window, or opening a busy room
+	// after a long one would render its whole history at once.
+	$effect(() => {
+		mx.activeRoomId;
+		windowSize = WINDOW_STEP;
+	});
+
+	/**
 	 * Follow the bottom only while the reader is already there.
 	 *
 	 * Yanking someone back down while they're reading history is the single
@@ -69,7 +97,7 @@
 	 */
 	$effect(() => {
 		// Depend on the timeline so this runs after each rebuild.
-		mx.timeline.length;
+		visible.length;
 		if (!scroller || !pinned) return;
 		queueMicrotask(() => {
 			if (scroller) scroller.scrollTop = scroller.scrollHeight;
@@ -82,18 +110,29 @@
 			scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
 		pinned = distanceFromBottom < 80;
 
-		if (scroller.scrollTop < 240) void loadMore();
+		if (scroller.scrollTop >= 240) return;
+
+		if (hiddenAbove > 0) {
+			// Widen before fetching: the messages are already here.
+			windowSize += WINDOW_STEP;
+			return;
+		}
+		void loadMore();
 	}
 </script>
 
 <div class="timeline" bind:this={scroller} onscroll={onScroll}>
 	{#if mx.loadingMore}
 		<p class="status faint">Loading earlier messages…</p>
+	{:else if hiddenAbove > 0}
+		<p class="status faint">
+			{hiddenAbove} earlier message{hiddenAbove === 1 ? "" : "s"} — scroll up to show
+		</p>
 	{:else if !mx.canLoadMore && mx.timeline.length}
 		<p class="status faint">This is the beginning of the room.</p>
 	{/if}
 
-	{#each mx.timeline as message (message.id)}
+	{#each visible as message (message.id)}
 		<article
 			class="message"
 			class:compact

@@ -84,7 +84,8 @@
 				detail: receiptsPrivate(room.id)
 					? "Others will see when you've read this room again."
 					: "Your read position still syncs to you, but nobody else is told.",
-				run: () => setRoomReceipts(room.id, receiptsPrivate(room.id))
+				// The new "send" value is the opposite of "currently private".
+				run: () => setRoomReceipts(room.id, /* send */ receiptsPrivate(room.id))
 			},
 			{ separator: true },
 			{

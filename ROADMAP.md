@@ -38,6 +38,12 @@ that only look like they work.
   pipeline rather than trusting anyone's HTML
 - Local search (Ctrl+F) across everything loaded, encrypted rooms included —
   which server-side search cannot do
+- Spaces filter the room list
+- Private read receipts, globally or per room, using `m.read.private` so your
+  own unread counts keep working
+- Edit history on any edited message
+- Windowed timeline, so a long scrollback doesn't put thousands of rows in
+  the DOM
 - Desktop notifications driven by your Matrix push rules, per-room mute as a
   real push rule, and a DND status that silences everything
 - Profile: avatar, banner, about, pronouns, and per-element styling published
@@ -51,7 +57,7 @@ that only look like they work.
 ## Next
 
 **Multiple accounts** — the restructure gets more expensive with every feature
-added, so it goes before the rest. Then threads, tray and unread badge.
+added. Then threads, tray and unread badge, scheduled messages, quiet hours.
 
 ---
 
@@ -62,7 +68,6 @@ Nothing below is exotic; the app isn't daily-driveable without them.
 
 - Threads
 - Notifications, tray icon, unread badge
-- Spaces filtering the room list — the rail exists, the filter isn't wired
 
 ### The differentiators
 The reasons to use this over Element.
@@ -70,10 +75,8 @@ The reasons to use this over Element.
 - **Multiple accounts at once** — see the note below
 - **Recovery-key restore**, for verifying when this is your only session
 - **Local-first search** over your own history, with no server-side index
-- **Read-receipt privacy toggle**, per room — read without announcing it
 - **Scheduled messages** — write now, send at a time, or when next online
 - **Quiet hours** — notifications held rather than dropped, and shown after
-- **Message edit history** — see what a message said before it was edited
 - **Activity status** — Discord-style presence. Greenhouse-to-Greenhouse via a
   custom account-data event; degrades to plain Matrix presence for everyone else
 - **Meshtastic** — chat over LoRa when there's no internet. A separate
@@ -81,7 +84,8 @@ The reasons to use this over Element.
   bridge process
 
 ### Performance, for the decade-old-machine goal
-- Virtualised timeline and room list — this is what breaks first at scale
+- Virtualised room list, and a true virtualised timeline (the current one is
+  windowed, which bounds the DOM but still keeps every view in memory)
 - Sliding sync (MSC3575), which makes login on a large account near-instant
 - Low-power mode: no animations, no image autoload
 
