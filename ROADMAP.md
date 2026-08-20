@@ -44,9 +44,10 @@ that only look like they work.
 - Edit history on any edited message
 - Windowed timeline, so a long scrollback doesn't put thousands of rows in
   the DOM
-- **Multiple accounts** — sign into several, switch from the status menu, sign
-  out of one without touching the rest. Each account gets its own crypto
-  store, so device keys can never collide
+- **Multiple accounts, syncing at once** — sign into several, switch from the
+  status menu with a live unread badge per account, sign out of one without
+  touching the rest. Each account gets its own crypto store, so device keys
+  can never collide. Switching is instant because the target is already synced
 - Tray icon with the unread count in its tooltip, and a menu to reopen or quit
 - Threads — a reply count on the root, and a side panel for the conversation,
   so a long thread never floods the room
@@ -67,8 +68,7 @@ that only look like they work.
 
 ## Next
 
-**Scheduled messages**, then background sync for inactive accounts (level 2
-below), then activity status.
+**Activity status**, then sliding sync and a virtualised room list.
 
 ---
 
@@ -149,12 +149,16 @@ client takes an account id instead. That's a mechanical change, but it touches
 every call site — which is why it is much cheaper to do before there are forty
 features calling into it than after.
 
-**Where this got to:** level 1 is built. Several accounts can be signed in,
-you switch from the status menu, and signing out of one leaves the others
-alone. Only the active account syncs.
+**Where this got to:** levels 1 and 2 are built. Several accounts sign in,
+all of them sync, each shows its own unread badge in the switcher, and
+notifications arrive from accounts you are not looking at. Switching hands the
+outgoing client to the background and takes the incoming one back, so it is
+instant rather than a reconnect.
 
-Level 2 — every account syncing at once, so unread counts and notifications
-are live for all of them — is next. Level 3 only if it turns out to be
+The cost is a second sync loop and a second copy of room state per account, so
+it is a setting that says what it costs.
+
+Level 3 — one merged room list across accounts — only if it turns out to be
 wanted; the badging complexity may not be worth it.
 
 **The hazard, and what was done about it:** each account needs its own crypto

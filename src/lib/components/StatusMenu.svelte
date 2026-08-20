@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Avatar from "./Avatar.svelte";
+	import { background } from "$lib/matrix/background.svelte";
 	import { beginAddAccount, getClient, mx, signOutAccount, switchAccount } from "$lib/matrix/client.svelte";
 	import {
 		PRESENCE_COLOURS,
@@ -136,7 +137,15 @@
 					>
 						<Avatar id={account.userId} name={account.userId} mxc={null} size={20} />
 						<span class="account-id">{account.userId}</span>
-						{#if account.key === mx.activeAccount}<span class="tick">✓</span>{/if}
+						{#if account.key === mx.activeAccount}
+							<span class="tick">✓</span>
+						{:else if background.badges[account.key]?.highlights}
+							<span class="badge mention">{background.badges[account.key].highlights}</span>
+						{:else if background.badges[account.key]?.unread}
+							<span class="badge">{background.badges[account.key].unread}</span>
+						{:else if background.enabled && !background.badges[account.key]?.ready}
+							<span class="badge quiet">…</span>
+						{/if}
 					</button>
 					<button
 						class="account-out"
@@ -319,6 +328,27 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.badge {
+		flex: none;
+		min-width: 17px;
+		padding: 0 5px;
+		border-radius: 999px;
+		background: var(--border-strong);
+		color: var(--text);
+		font-size: 10px;
+		text-align: center;
+	}
+
+	.badge.mention {
+		background: var(--unread);
+		color: var(--accent-text);
+	}
+
+	.badge.quiet {
+		background: none;
+		color: var(--text-faint);
 	}
 
 	.account-out {

@@ -56,6 +56,17 @@ import {
 	setRoomMuted
 } from "./notify.svelte";
 import { hasMarkdown, renderMarkdown } from "./markdown";
+import {
+	adopt,
+	background,
+	backgroundTotals,
+	loadBackgroundPref,
+	onBadgesChanged,
+	release,
+	run as runBackground,
+	stop as stopBackground,
+	stopAll as stopAllBackground
+} from "./background.svelte";
 import { loadProfile, resetProfile } from "./profile.svelte";
 import { flush, loadScheduled } from "./scheduled.svelte";
 import { refreshStatus, reset as resetVerification, watchForRequests } from "./verification.svelte";
@@ -197,15 +208,43 @@ export async function switchAccount(key: string): Promise<void> {
 
 	mx.busy = true;
 	try {
-		await stopClient();
+		// Hand the account being left to the background rather than tearing it
+		// down: it is already synced, and it will be wanted again.
+		const leaving = stored.sessions.find(
+			(session) => sessionKey(session) === mx.activeAccount
+		);
+		const outgoing = client;
+		detachListeners();
+		clearForegroundState();
+		client = null;
+		if (outgoing && leaving) adopt(leaving, outgoing);
+		else if (outgoing) outgoing.stopClient();
+
 		await setActiveSession(key);
-		await connect(wanted);
+
+		// If it was already syncing in the background, take it back and skip
+		// the whole connect: it is up to date, so the switch is instant.
+		const existing = release(key);
+		if (existing) await adoptForeground(wanted, existing);
+		else await connect(wanted);
 	} catch (error) {
 		mx.error = describe(error);
 		mx.phase = "login";
 	} finally {
 		mx.busy = false;
 	}
+}
+
+/** Promote an already-syncing background client to the foreground. */
+async function adoptForeground(session: StoredSession, existing: MatrixClient): Promise<void> {
+	client = existing;
+	mx.phase = "connecting";
+	mx.homeserver = session.homeserver;
+	mx.userId = session.user_id;
+	mx.cryptoReady = Boolean(existing.getCrypto());
+
+	attachListeners(existing);
+	afterConnect(session);
 }
 
 /** Put the login screen up without signing anything out. */
@@ -229,6 +268,7 @@ export async function signOutAccount(key: string): Promise<void> {
 			await client.logout(true).catch((error) => console.warn("logout call failed", error));
 			await stopClient();
 		}
+		stopBackground(key);
 		await removeSession(key);
 		mx.accounts = mx.accounts.filter((account) => account.key !== key);
 
@@ -242,19 +282,13 @@ export async function signOutAccount(key: string): Promise<void> {
 }
 
 /** Stop syncing and detach, without touching stored sessions. */
-async function stopClient(): Promise<void> {
-	if (client) {
-		// `stopClient` shuts the crypto stack down too. Each account already
-		// has its own IndexedDB via `cryptoDatabasePrefix`, so the stores can
-		// never interleave even if teardown were slow.
-		client.stopClient();
-	}
-	detachListeners();
+function clearForegroundState(): void {
 	resetVerification();
 	resetProfile();
 	forgetAttachments();
 	viewCache.clear();
-	client = null;
+	threadView.rootId = null;
+	threadView.messages = [];
 
 	mx.rooms = [];
 	mx.timeline = [];
@@ -263,6 +297,18 @@ async function stopClient(): Promise<void> {
 	mx.activeSpaceId = null;
 	mx.typing = [];
 	mx.cryptoReady = false;
+}
+
+async function stopClient(): Promise<void> {
+	if (client) {
+		// `stopClient` shuts the crypto stack down too. Each account already
+		// has its own IndexedDB via `cryptoDatabasePrefix`, so the stores can
+		// never interleave even if teardown were slow.
+		client.stopClient();
+	}
+	detachListeners();
+	clearForegroundState();
+	client = null;
 }
 
 /**
@@ -428,6 +474,12 @@ async function connect(session: StoredSession): Promise<void> {
 		client?.off("crossSigning.keysChanged" as never, onKeys as never);
 	});
 
+	afterConnect(session);
+}
+
+/** Everything that happens once a client is live, however it got here. */
+function afterConnect(session: StoredSession): void {
+	if (!client) return;
 	mx.activeAccount = sessionKey(session);
 	mx.addingAccount = false;
 	if (!mx.accounts.some((account) => account.key === mx.activeAccount)) {
@@ -440,6 +492,24 @@ async function connect(session: StoredSession): Promise<void> {
 
 	mx.phase = "ready";
 	scheduleRoomRebuild();
+
+	// Everything else signed in starts syncing too, so their unread counts and
+	// notifications are live rather than appearing only once you switch.
+	loadBackgroundPref();
+	// The tray counts every account, so a background change has to reach it.
+	onBadgesChanged(() => updateTray(mx.rooms));
+	void startBackgroundAccounts();
+}
+
+async function startBackgroundAccounts(): Promise<void> {
+	if (!background.enabled) return;
+	const stored = await loadSessions();
+	for (const session of stored.sessions) {
+		if (sessionKey(session) === mx.activeAccount) continue;
+		await runBackground(session).catch((error) =>
+			console.warn("background account failed to start", error)
+		);
+	}
 }
 
 /** Resolve on the first `PREPARED`, reject if the server rejects us. */
@@ -479,6 +549,7 @@ export async function logout(): Promise<void> {
 			await client.logout(true).catch((error) => console.warn("logout call failed", error));
 		}
 		await stopClient();
+		stopAllBackground();
 		await clearSessions().catch(() => {});
 		await finishLogout();
 	} finally {
@@ -702,6 +773,10 @@ function updateTray(views: RoomView[]): void {
 		total += room.unread;
 		highlights += room.highlights;
 	}
+
+	const other = backgroundTotals();
+	total += other.unread;
+	highlights += other.highlights;
 
 	const signature = `${total}|${highlights}`;
 	if (signature === lastTray) return;

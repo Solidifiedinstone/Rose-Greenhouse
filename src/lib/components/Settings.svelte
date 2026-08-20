@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { logout, mx, setGlobalReceipts, unblockUser } from "$lib/matrix/client.svelte";
 	import { verify } from "$lib/matrix/verification.svelte";
+	import { background, setBackgroundSync } from "$lib/matrix/background.svelte";
 	import ThemeEditor from "./ThemeEditor.svelte";
 	import {
 		formatMinutes,
@@ -128,6 +129,24 @@
 				matches Element and your phone. Mute a single room by right-clicking
 				it. Your status is <strong>{PRESENCE_LABELS[profile.presence]}</strong>{#if profile.presence === "dnd"}
 					— everything is silenced while that's set{/if}.
+			</p>
+		</section>
+
+		<section>
+			<h3>Accounts</h3>
+			<label class="toggle">
+				<input
+					type="checkbox"
+					checked={background.enabled}
+					onchange={(event) => setBackgroundSync(event.currentTarget.checked)}
+				/>
+				<span>Keep other accounts synced</span>
+			</label>
+			<p class="dim small">
+				Unread counts and notifications stay live for accounts you aren't
+				looking at, and switching to one is instant because it's already
+				synced. The cost is a second connection and a second copy of room
+				state per account — turn it off on a machine short of memory.
 			</p>
 		</section>
 
