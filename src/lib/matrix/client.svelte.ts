@@ -67,7 +67,8 @@ import {
 	stop as stopBackground,
 	stopAll as stopAllBackground
 } from "./background.svelte";
-import { loadProfile, resetProfile } from "./profile.svelte";
+import { activity, detectOnce, encodeActivity, loadActivity, resetActivity } from "./activity.svelte";
+import { loadProfile, profile, resetProfile, saveExtras } from "./profile.svelte";
 import { flush, loadScheduled } from "./scheduled.svelte";
 import { refreshStatus, reset as resetVerification, watchForRequests } from "./verification.svelte";
 import { forgetAttachments, sendFile } from "./upload.svelte";
@@ -285,6 +286,7 @@ export async function signOutAccount(key: string): Promise<void> {
 function clearForegroundState(): void {
 	resetVerification();
 	resetProfile();
+	resetActivity();
 	forgetAttachments();
 	viewCache.clear();
 	threadView.rootId = null;
@@ -454,6 +456,22 @@ async function connect(session: StoredSession): Promise<void> {
 	// Scheduled messages: the queue is local, so something has to notice when
 	// one comes due. Flushed once on connect too, which is what makes "send
 	// next time I'm online" mean anything.
+	/*
+	 * Activity detection, if it is switched on.
+	 *
+	 * Polled rather than hooked, because there is no OS event for "a program
+	 * started" that is portable across Linux, Windows and macOS. Fifteen
+	 * seconds is slow enough to cost nothing and fast enough that nobody
+	 * notices the lag.
+	 */
+	loadActivity();
+	const activityTimer = setInterval(() => {
+		void detectOnce().then((changed) => {
+			if (changed) void publishActivity();
+		});
+	}, 15_000);
+	detachers.push(() => clearInterval(activityTimer));
+
 	loadScheduled();
 	void flushScheduled();
 	const scheduleTimer = setInterval(() => void flushScheduled(), 20_000);
@@ -1758,6 +1776,24 @@ export async function sendThreadMessage(body: string): Promise<void> {
  * finished its first sync risks sending into a room whose encryption state we
  * have not seen yet.
  */
+/**
+ * Push the current activity into the profile.
+ *
+ * Separate from detection on purpose: finding out what is running and telling
+ * other people about it are two different acts, and only this one leaves the
+ * machine.
+ */
+export async function publishActivity(): Promise<void> {
+	if (!client) return;
+	const encoded = encodeActivity(activity.current);
+	if (encoded === profile.extras.activity) return;
+	try {
+		await saveExtras(client, { ...profile.extras, activity: encoded });
+	} catch (error) {
+		console.warn("could not publish activity", error);
+	}
+}
+
 async function flushScheduled(): Promise<void> {
 	if (!client || mx.phase !== "ready") return;
 	await flush(async (roomId, body) => {

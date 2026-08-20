@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Avatar from "./Avatar.svelte";
 	import { background } from "$lib/matrix/background.svelte";
+	import { ACTIVITY_KINDS, activity, setActivity } from "$lib/matrix/activity.svelte";
 	import { beginAddAccount, getClient, mx, signOutAccount, switchAccount } from "$lib/matrix/client.svelte";
 	import {
 		PRESENCE_COLOURS,
@@ -105,6 +106,30 @@
 			</button>
 		{/each}
 	</div>
+
+	<label class="message activity-row">
+		<span>Activity</span>
+		<span class="activity-inputs">
+			<select
+				value={activity.current.kind}
+				disabled={activity.auto}
+				onchange={(event) =>
+					setActivity({ ...activity.current, kind: event.currentTarget.value as never })}
+			>
+				{#each ACTIVITY_KINDS as kind (kind.id)}
+					<option value={kind.id}>{kind.label}</option>
+				{/each}
+			</select>
+			<input
+				value={activity.current.name}
+				disabled={activity.auto}
+				maxlength="80"
+				placeholder={activity.auto ? "detected automatically" : "what you're up to"}
+				onchange={(event) =>
+					setActivity({ ...activity.current, name: event.currentTarget.value })}
+			/>
+		</span>
+	</label>
 
 	<label class="message">
 		<span>Status message</span>
@@ -270,6 +295,31 @@
 		letter-spacing: 0.5px;
 		text-transform: uppercase;
 		color: var(--text-faint);
+	}
+
+	.activity-inputs {
+		display: flex;
+		gap: 4px;
+		margin-top: 4px;
+	}
+
+	.activity-inputs select {
+		flex: none;
+		width: 88px;
+		background: var(--raised);
+		color: var(--text);
+		border: var(--border-width, 1px) solid var(--border);
+		border-radius: var(--radius);
+		font: inherit;
+		font-size: 11px;
+		text-transform: none;
+		letter-spacing: 0;
+		padding: 4px;
+	}
+
+	.activity-inputs input {
+		flex: 1;
+		min-width: 0;
 	}
 
 	.message input {

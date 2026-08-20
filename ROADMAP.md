@@ -51,6 +51,10 @@ that only look like they work.
 - Tray icon with the unread count in its tooltip, and a menu to reopen or quit
 - Threads — a reply count on the root, and a side panel for the conversation,
   so a long thread never floods the room
+- **Activity status** — "Playing X", set by hand or detected from programs you
+  explicitly name. Detection is opt-in, the watchlist never leaves the machine,
+  and publishing is a separate step. Visible to other Greenhouse users where
+  the server supports extended profiles
 - **Scheduled messages** — send at a time, or the next time you're online.
   Local-only, and the UI says so: Matrix has no server-side scheduling, so
   nothing sends while the app is closed
@@ -68,7 +72,8 @@ that only look like they work.
 
 ## Next
 
-**Activity status**, then sliding sync and a virtualised room list.
+**Sliding sync (MSC3575)** and a virtualised room list, then self-hosting and
+the Android build.
 
 ---
 
@@ -83,8 +88,6 @@ The reasons to use this over Element.
 
 - **Recovery-key restore**, for verifying when this is your only session
 - **Local-first search** over your own history, with no server-side index
-- **Activity status** — Discord-style presence. Greenhouse-to-Greenhouse via a
-  custom account-data event; degrades to plain Matrix presence for everyone else
 - **Meshtastic** — chat over LoRa when there's no internet. A separate
   transport, not a Matrix feature, so it comes late and probably as its own
   bridge process

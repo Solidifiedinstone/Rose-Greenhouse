@@ -2,6 +2,13 @@
 	import { logout, mx, setGlobalReceipts, unblockUser } from "$lib/matrix/client.svelte";
 	import { verify } from "$lib/matrix/verification.svelte";
 	import { background, setBackgroundSync } from "$lib/matrix/background.svelte";
+	import {
+		activity,
+		addToWatchlist,
+		listProcesses,
+		removeFromWatchlist,
+		setAuto
+	} from "$lib/matrix/activity.svelte";
 	import ThemeEditor from "./ThemeEditor.svelte";
 	import {
 		formatMinutes,
@@ -18,6 +25,19 @@
 	}
 
 	let { onclose, onverify, onprofile }: Props = $props();
+
+	let processes: string[] = $state([]);
+	let scanning = $state(false);
+	let manual = $state("");
+
+	async function scan() {
+		scanning = true;
+		try {
+			processes = await listProcesses();
+		} finally {
+			scanning = false;
+		}
+	}
 
 </script>
 
@@ -148,6 +168,69 @@
 				synced. The cost is a second connection and a second copy of room
 				state per account — turn it off on a machine short of memory.
 			</p>
+		</section>
+
+		<section>
+			<h3>Activity status</h3>
+			<label class="toggle">
+				<input
+					type="checkbox"
+					checked={activity.auto}
+					onchange={(event) => setAuto(event.currentTarget.checked)}
+				/>
+				<span>Set my activity from what's running</span>
+			</label>
+			<p class="dim small">
+				Only the programs you list below are ever looked for, and the list stays
+				on this machine. Detecting is separate from publishing: your activity is
+				part of your profile, so other Greenhouse users see it and other Matrix
+				clients don't.
+			</p>
+
+			{#if activity.auto}
+				<div class="watchlist">
+					{#each activity.watchlist as name (name)}
+						<span class="watch" class:running={activity.detected.includes(name)}>
+							{name}
+							<button onclick={() => removeFromWatchlist(name)} title="Remove">×</button>
+						</span>
+					{:else}
+						<span class="dim small">Nothing watched yet — add a program below.</span>
+					{/each}
+				</div>
+
+				<div class="watch-add">
+					<input
+						bind:value={manual}
+						placeholder="Program name, e.g. steam"
+						onkeydown={(event) => {
+							if (event.key === "Enter") {
+								addToWatchlist(manual);
+								manual = "";
+							}
+						}}
+					/>
+					<button
+						class="button"
+						onclick={() => {
+							addToWatchlist(manual);
+							manual = "";
+						}}
+						disabled={!manual.trim()}
+					>Add</button>
+					<button class="button" onclick={scan} disabled={scanning}>
+						{scanning ? "…" : "Show running"}
+					</button>
+				</div>
+
+				{#if processes.length}
+					<div class="processes">
+						{#each processes.slice(0, 200) as name (name)}
+							<button class="process" onclick={() => addToWatchlist(name)}>{name}</button>
+						{/each}
+					</div>
+				{/if}
+			{/if}
 		</section>
 
 		<section>
@@ -300,6 +383,67 @@
 		width: auto;
 		padding: 4px 6px;
 		font-size: 12px;
+	}
+
+	.watchlist {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 5px;
+		margin: 8px 0;
+	}
+
+	.watch {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		padding: 2px 8px;
+		border-radius: 999px;
+		border: 1px solid var(--border);
+		font-size: 11px;
+	}
+
+	.watch.running {
+		border-color: var(--success);
+		color: var(--success);
+	}
+
+	.watch button {
+		color: var(--text-faint);
+		font-size: 13px;
+		line-height: 1;
+	}
+
+	.watch button:hover {
+		color: var(--danger);
+	}
+
+	.watch-add {
+		display: flex;
+		gap: 6px;
+		margin-bottom: 8px;
+	}
+
+	.processes {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+		max-height: 130px;
+		overflow-y: auto;
+		padding: 6px;
+		border: 1px dashed var(--border);
+		border-radius: var(--radius);
+	}
+
+	.process {
+		padding: 2px 7px;
+		border-radius: 999px;
+		background: var(--raised);
+		font-size: 11px;
+		color: var(--text-dim);
+	}
+
+	.process:hover {
+		color: var(--accent);
 	}
 
 	.blocked {

@@ -6,6 +6,7 @@
 //! holds the things a webview should not: the access token, and later the
 //! window/tray plumbing.
 
+mod activity;
 mod session;
 mod tray;
 
@@ -29,6 +30,8 @@ pub fn run() {
             session::remove_session,
             session::clear_session,
             tray::set_unread,
+            activity::list_processes,
+            activity::running_from,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

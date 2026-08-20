@@ -3,6 +3,7 @@
 	import { getClient } from "$lib/matrix/client.svelte";
 	import { resolveMxc } from "$lib/matrix/upload.svelte";
 	import { fillBackground, fontStack, type Extras } from "$lib/matrix/profile.svelte";
+	import { activityLabel, decodeActivity } from "$lib/matrix/activity.svelte";
 
 	interface Props {
 		userId: string;
@@ -105,6 +106,9 @@
 			{#if extras.pronouns}
 				<span class="pronouns">{extras.pronouns}</span>
 			{/if}
+			{#if activityLabel(decodeActivity(extras.activity))}
+				<span class="activity">{activityLabel(decodeActivity(extras.activity))}</span>
+			{/if}
 		</div>
 	</div>
 
@@ -197,6 +201,13 @@
 		border-radius: 999px;
 		border: 1px solid currentColor;
 		opacity: 0.75;
+	}
+
+	.activity {
+		display: block;
+		margin-top: 4px;
+		font-size: 12px;
+		opacity: 0.85;
 	}
 
 	.about {

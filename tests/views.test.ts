@@ -37,6 +37,12 @@ import { SHAPE_LIMITS } from "../src/lib/theme/shape";
 import { PRESENCE_COLOURS, PRESENCE_LABELS } from "../src/lib/matrix/profile.svelte";
 import { formatMinutes, inQuietHours, previewFor } from "../src/lib/matrix/notify.svelte";
 import { dueNow, type Scheduled } from "../src/lib/matrix/scheduled.svelte";
+import {
+	activityLabel,
+	decodeActivity,
+	encodeActivity,
+	sanitiseActivity
+} from "../src/lib/matrix/activity.svelte";
 import { parseRoomTarget, stripReplyFallback } from "../src/lib/matrix/client.svelte";
 import {
 	EMPTY_EXTRAS,
@@ -172,8 +178,8 @@ describe("room ordering", () => {
 
 describe("display helpers", () => {
 	it("makes initials from the parts of a name", () => {
-		expect(initials("Gavin Rose")).toBe("GR");
-		expect(initials("@gavin:example.org")).toBe("GA");
+		expect(initials("Ada Rose")).toBe("AR");
+		expect(initials("@ada:example.org")).toBe("AD");
 		expect(initials("")).toBe("?");
 	});
 
@@ -246,6 +252,41 @@ describe("notifications", () => {
 			getContent: () => ({ body: "x".repeat(400) })
 		} as never);
 		expect(long.length).toBeLessThanOrEqual(140);
+	});
+});
+
+describe("activity status", () => {
+	it("round-trips", () => {
+		const value = { kind: "listening" as const, name: "Something Loud" };
+		expect(decodeActivity(encodeActivity(value))).toEqual(value);
+	});
+
+	it("encodes nothing when there is nothing to say", () => {
+		expect(encodeActivity({ kind: "playing", name: "   " })).toBe("");
+		expect(decodeActivity("").name).toBe("");
+	});
+
+	it("keeps a name containing the separator intact", () => {
+		// Split on the FIRST bar only, or "Half-Life 2 | Episode One" loses
+		// everything after the bar.
+		const value = { kind: "playing" as const, name: "Half-Life 2 | Episode One" };
+		expect(decodeActivity(encodeActivity(value)).name).toBe("Half-Life 2 | Episode One");
+	});
+
+	it("falls back safely for junk from someone else's profile", () => {
+		expect(decodeActivity("<script>|x").kind).toBe("playing");
+		expect(decodeActivity(undefined).name).toBe("");
+		expect(sanitiseActivity({ kind: "nonsense", name: 5 }).kind).toBe("playing");
+	});
+
+	it("caps a name rather than letting a profile push a wall of text", () => {
+		expect(sanitiseActivity({ kind: "playing", name: "x".repeat(500) }).name.length).toBe(80);
+	});
+
+	it("labels an activity the way it reads", () => {
+		expect(activityLabel({ kind: "playing", name: "Chess" })).toBe("Playing Chess");
+		expect(activityLabel({ kind: "custom", name: "afk" })).toBe("afk");
+		expect(activityLabel({ kind: "playing", name: "" })).toBe("");
 	});
 });
 
@@ -541,6 +582,7 @@ describe("profile save gating", () => {
 		pronouns: "they/them",
 		text: "#123456",
 		font: "rubik",
+		activity: "playing|Some Game",
 		card: { kind: "gradient", from: "#111111", to: "#222222", angle: 90 },
 		name: { kind: "flat", from: "#abcdef", to: "", angle: 160 }
 	};

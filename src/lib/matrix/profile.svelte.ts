@@ -23,6 +23,7 @@ import type { MatrixClient } from "matrix-js-sdk";
 
 import { forgetMxc } from "./upload.svelte";
 import { SYSTEM_MONO_STACK, SYSTEM_UI_STACK } from "../theme/fonts";
+import { decodeActivity, encodeActivity } from "./activity.svelte";
 
 /** Our own account-data event. Namespaced so it can never collide. */
 export const PROFILE_EVENT = "org.rose.greenhouse.profile";
@@ -145,6 +146,8 @@ export interface Extras {
 	text: string;
 	/** One of `PROFILE_FONTS`. */
 	font: string;
+	/** Encoded activity, `kind|name`. See `activity.svelte.ts`. */
+	activity: string;
 	/** The card's background. */
 	card: Fill;
 	/** The display name, styled independently of the card. */
@@ -157,6 +160,7 @@ export const EMPTY_EXTRAS: Extras = {
 	pronouns: "",
 	text: "",
 	font: "default",
+	activity: "",
 	card: { ...DEFAULT_FILL },
 	name: { ...DEFAULT_FILL }
 };
@@ -264,6 +268,9 @@ export function sanitise(input: Partial<Extras> | null): Extras {
 		// Only ids from the list survive, so nothing from a stranger's profile
 		// reaches a stylesheet.
 		font: PROFILE_FONTS.some((f) => f.id === raw.font) ? (raw.font as string) : "default",
+		// Re-encoded through the activity validator, so a hostile value from
+		// somebody else's profile cannot reach the card.
+		activity: encodeActivity(decodeActivity(raw.activity)),
 		card: asFill(raw.card),
 		name: asFill(raw.name)
 	};
@@ -387,6 +394,7 @@ export async function saveExtras(client: MatrixClient, extras: Extras): Promise<
 			["pronouns", clean.pronouns],
 			["text", clean.text],
 			["font", clean.font],
+			["activity", clean.activity],
 			["card", encodeFill(clean.card)],
 			["name", encodeFill(clean.name)]
 		];
@@ -472,6 +480,7 @@ export function sameExtras(a: Extras, b: Extras): boolean {
 		a.pronouns === b.pronouns &&
 		a.text === b.text &&
 		a.font === b.font &&
+		a.activity === b.activity &&
 		encodeFill(a.card) === encodeFill(b.card) &&
 		encodeFill(a.name) === encodeFill(b.name)
 	);
@@ -499,6 +508,7 @@ export function extrasFromFields(fields: Record<string, unknown>): Extras {
 		pronouns: at("pronouns") as string,
 		text: at("text") as string,
 		font: at("font") as string,
+		activity: at("activity") as string,
 		card: at("card"),
 		name: at("name")
 	} as never);
