@@ -63,7 +63,16 @@
 				They should be in the same order.
 			</p>
 			<div class="emoji">
-				{#each verify.emoji as [glyph, name] (name + glyph)}
+				<!--
+						Keyed by position, not by the emoji.
+
+						A SAS is seven emoji drawn from a set of 64, so repeats are
+						normal — and two identical keys in a keyed block is undefined
+						behaviour: Svelte can attach handlers to the wrong nodes. That
+						is how pressing "They match" could end up firing the mismatch
+						handler and cancelling the exchange with m.mismatched_sas.
+					-->
+					{#each verify.emoji as [glyph, name], index (index)}
 					<div class="tile">
 						<span class="glyph">{glyph}</span>
 						<span class="name">{name}</span>

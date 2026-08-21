@@ -19,7 +19,8 @@
 	<div class="panel" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()}>
 		<h2>Edit history</h2>
 		<div class="list">
-			{#each versions as version, index (version.timestamp)}
+			<!-- Keyed by position: two edits can share a millisecond. -->
+			{#each versions as version, index (index)}
 				<div class="version" class:current={index === 0}>
 					<span class="when">
 						{formatTimestamp(version.timestamp)}
