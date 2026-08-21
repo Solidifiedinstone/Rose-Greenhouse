@@ -30,7 +30,7 @@ import {
 	type ShowSasCallbacks,
 	type VerificationRequest
 } from "matrix-js-sdk/lib/crypto-api";
-import { Method, type MatrixClient } from "matrix-js-sdk";
+import { ClientEvent, Method, type MatrixClient, type MatrixEvent } from "matrix-js-sdk";
 
 export type VerifyStage =
 	| "idle"
@@ -119,7 +119,7 @@ function short(key: string | undefined): string {
 }
 
 function note(line: string): void {
-	verify.trace = [...verify.trace, line].slice(-20);
+	verify.trace = [...verify.trace, line].slice(-40);
 }
 
 let request: VerificationRequest | null = null;
@@ -182,6 +182,53 @@ export async function refreshStatus(client: MatrixClient | null): Promise<void> 
 	}
 }
 
+/**
+ * Record the raw verification traffic.
+ *
+ * The phase list says *that* the exchange was cancelled; it cannot say which
+ * device sent the cancellation, and `m.mismatched_sas` is not a code the
+ * protocol generates on its own — a MAC failure is `m.key_mismatch`. So a
+ * mismatch arriving means some device deliberately sent one, and the only way
+ * to know which is to read the to-device events as they land.
+ *
+ * Everything logged here is metadata the two devices already exchanged in the
+ * clear: event type, sending device, and key *identifiers*. No key material
+ * and no secrets.
+ */
+function watchToDevice(client: MatrixClient): () => void {
+	const onToDevice = (event: MatrixEvent) => {
+		const type = event.getType();
+		if (!type.startsWith("m.key.verification.")) return;
+		const content = event.getContent() as Record<string, unknown>;
+		/*
+		 * `cancel` carries no `from_device` — the spec only puts it on the
+		 * messages that set the exchange up. When it is absent the olm identity
+		 * key of the sending device is the next best label, and it is enough to
+		 * tell one device's traffic from another's.
+		 */
+		const from =
+			typeof content.from_device === "string"
+				? content.from_device
+				: short(event.getSenderKey() ?? undefined);
+		const kind = type.slice("m.key.verification.".length);
+
+		const detail: string[] = [];
+		if (typeof content.code === "string") detail.push(`code=${content.code}`);
+		if (typeof content.reason === "string") detail.push(`reason=${content.reason}`);
+		if (typeof content.method === "string") detail.push(content.method);
+		if (content.mac && typeof content.mac === "object") {
+			detail.push(`macs for ${Object.keys(content.mac as object).join(", ")}`);
+		}
+		if (typeof content.message_authentication_code === "string") {
+			detail.push(content.message_authentication_code);
+		}
+		note(`<- ${kind} from ${from}${detail.length ? ` ${detail.join(" ")}` : ""}`);
+	};
+
+	client.on(ClientEvent.ToDeviceEvent, onToDevice);
+	return () => client.off(ClientEvent.ToDeviceEvent, onToDevice);
+}
+
 /** Listen for verification started from another client. Call once, on connect. */
 export function watchForRequests(client: MatrixClient): () => void {
 	const onRequest = (incoming: VerificationRequest) => {
@@ -197,7 +244,11 @@ export function watchForRequests(client: MatrixClient): () => void {
 	};
 
 	client.on(CryptoEvent.VerificationRequestReceived, onRequest);
-	return () => client.off(CryptoEvent.VerificationRequestReceived, onRequest);
+	const stopWatchingTraffic = watchToDevice(client);
+	return () => {
+		client.off(CryptoEvent.VerificationRequestReceived, onRequest);
+		stopWatchingTraffic();
+	};
 }
 
 /** Ask another of your sessions to verify this one. */
@@ -213,7 +264,7 @@ export async function start(client: MatrixClient | null): Promise<void> {
 	// Put the key state at the top of every trace: it is the first thing worth
 	// knowing when a matching SAS is rejected.
 	if (verify.keyReport) note(verify.keyReport);
-	note("requesting");
+	note(`requesting (we are ${client?.getDeviceId() ?? "?"})`);
 	try {
 		request = await crypto.requestOwnUserVerification();
 		verify.otherDeviceId = request.otherDeviceId ?? "";
