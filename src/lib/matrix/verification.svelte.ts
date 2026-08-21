@@ -167,6 +167,7 @@ export async function accept(): Promise<void> {
 export async function confirmMatch(): Promise<void> {
 	if (!sas) return;
 	verify.stage = "waiting";
+	note("we confirmed the emoji match");
 	try {
 		await sas.confirm();
 	} catch (error) {
@@ -189,6 +190,7 @@ export async function confirmMatch(): Promise<void> {
  */
 export function reportMismatch(): void {
 	if (!sas) return;
+	note("we reported a mismatch");
 	sas.mismatch();
 	verify.stage = "cancelled";
 	verify.error =
@@ -335,6 +337,9 @@ function hookVerifier(current: VerificationRequest): void {
 	// The verifier only produces the SAS once it is driven, and this resolves
 	// when the whole exchange finishes.
 	verifier.verify().catch((error: unknown) => {
+		// The SDK's rejection names who cancelled — "by us" or "by them" — which
+		// is the one thing the phase list cannot tell us.
+		note(message(error));
 		if (verify.stage === "done" || verify.stage === "cancelled") return;
 		verify.stage = "error";
 		// The cancellation code is the useful part — "m.user" means somebody
@@ -346,7 +351,10 @@ function hookVerifier(current: VerificationRequest): void {
 }
 
 function show(callbacks: ShowSasCallbacks): void {
-	note("emoji shown");
+	const glyphs = (callbacks.sas.emoji ?? []).map(([glyph]) => glyph).join(" ");
+	// Recorded so a display problem on this side can be told apart from a
+	// genuine disagreement between the two devices.
+	note(`emoji shown: ${glyphs}`);
 	sas = callbacks;
 	// The emoji live on the generated SAS, not on the callbacks themselves.
 	verify.emoji = callbacks.sas.emoji ?? [];
