@@ -67,6 +67,8 @@ export const verify = $state({
 	 * instead of letting people compare emoji over and over.
 	 */
 	keysDiverged: false,
+	/** Fingerprints and cross-signing state, for the failure trace. */
+	keyReport: "",
 
 	stage: "idle" as VerifyStage,
 	/** The seven emoji, as [emoji, name] pairs. */
@@ -86,6 +88,12 @@ export const verify = $state({
 	trace: [] as string[]
 });
 
+/** First and last few characters — enough to compare, short enough to read. */
+function short(key: string | undefined): string {
+	if (!key) return "none";
+	return key.length > 14 ? `${key.slice(0, 6)}…${key.slice(-4)}` : key;
+}
+
 function note(line: string): void {
 	verify.trace = [...verify.trace, line].slice(-20);
 }
@@ -101,6 +109,7 @@ export async function refreshStatus(client: MatrixClient | null): Promise<void> 
 		return;
 	}
 	try {
+		verify.crossSigningReady = await crypto.isCrossSigningReady();
 		const userId = client.getUserId();
 		const deviceId = client.getDeviceId();
 		if (userId && deviceId) {
@@ -126,8 +135,21 @@ export async function refreshStatus(client: MatrixClient | null): Promise<void> 
 			const serverSide = mine?.get(deviceId);
 			const serverEd = serverSide?.getFingerprint();
 			verify.keysDiverged = Boolean(serverEd && own.ed25519 && serverEd !== own.ed25519);
+
+			/*
+			 * Recorded rather than merely compared.
+			 *
+			 * A MAC failure with matching emoji means the two sides disagree
+			 * about *keys*, and there are several ways for that to happen —
+			 * a replaced local store, a device the server has no record of, or
+			 * cross-signing missing on this side. Only the actual values
+			 * separate them, so they go in the trace.
+			 */
+			verify.keyReport =
+				`device ${deviceId} · local ${short(own.ed25519)} · ` +
+				`server ${serverEd ? short(serverEd) : "no record"} · ` +
+				`cross-signing ${verify.crossSigningReady ? "ready" : "NOT set up here"}`;
 		}
-		verify.crossSigningReady = await crypto.isCrossSigningReady();
 		verify.keyBackup = Boolean(await crypto.getActiveSessionBackupVersion());
 	} catch (error) {
 		console.warn("could not read encryption status", error);
@@ -164,6 +186,9 @@ export async function start(client: MatrixClient | null): Promise<void> {
 	}
 	reset();
 	verify.stage = "requesting";
+	// Put the key state at the top of every trace: it is the first thing worth
+	// knowing when a matching SAS is rejected.
+	if (verify.keyReport) note(verify.keyReport);
 	note("requesting");
 	try {
 		request = await crypto.requestOwnUserVerification();
