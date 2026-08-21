@@ -51,6 +51,22 @@ export const verify = $state({
 	otherDevices: 0,
 	/** True once we have actually asked the crypto stack, so the UI can wait. */
 	checked: false,
+	/**
+	 * Set when this device's local keys disagree with what the server has
+	 * recorded for the same device id.
+	 *
+	 * A device's identity keys are fixed when it registers; a server will not
+	 * accept different ones later. So if the local encryption store is
+	 * replaced — a new store, a wiped profile, a changed store name — the
+	 * client ends up holding keys nobody else has ever seen while every other
+	 * device still trusts the originals. Verification then fails the MAC check
+	 * and the other side reports `m.mismatched_sas`, which reads as "the emoji
+	 * didn't match" even though they did.
+	 *
+	 * It is unrecoverable without a new device id, so it is worth naming
+	 * instead of letting people compare emoji over and over.
+	 */
+	keysDiverged: false,
 
 	stage: "idle" as VerifyStage,
 	/** The seven emoji, as [emoji, name] pairs. */
@@ -103,6 +119,13 @@ export async function refreshStatus(client: MatrixClient | null): Promise<void> 
 			const devices = await crypto.getUserDeviceInfo([userId], true);
 			const mine = devices.get(userId);
 			verify.otherDevices = mine ? Math.max(0, mine.size - 1) : 0;
+
+			// Compare what we hold against what the server has for this same
+			// device id. See `keysDiverged`.
+			const own = await crypto.getOwnDeviceKeys();
+			const serverSide = mine?.get(deviceId);
+			const serverEd = serverSide?.getFingerprint();
+			verify.keysDiverged = Boolean(serverEd && own.ed25519 && serverEd !== own.ed25519);
 		}
 		verify.crossSigningReady = await crypto.isCrossSigningReady();
 		verify.keyBackup = Boolean(await crypto.getActiveSessionBackupVersion());

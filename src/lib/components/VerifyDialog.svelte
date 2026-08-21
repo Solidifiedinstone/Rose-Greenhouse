@@ -139,7 +139,25 @@
 				encrypted rooms. That's why messages sent before you signed in here
 				show as <em>encrypted message</em>.
 			</p>
-			{#if verify.otherDevices === 0}
+			{#if verify.keysDiverged}
+				<p class="bad">
+					<strong>This device's encryption keys don't match the server's record
+					for it.</strong>
+					A device's keys are fixed when it first registers, so this happens
+					when the local encryption store is replaced — the client then holds
+					keys nobody else has ever seen, while every other device still trusts
+					the originals.
+				</p>
+				<p class="dim">
+					Verification can't succeed in this state: the emoji will match and the
+					other side will still reject the check, reporting it as a mismatch.
+					Signing out and back in issues a fresh device with keys everyone can
+					agree on. Nothing is lost that isn't already unreadable.
+				</p>
+				<div class="actions">
+					<button class="button" onclick={close}>Close</button>
+				</div>
+			{:else if verify.otherDevices === 0}
 				<p class="bad">
 					I can't see another signed-in session for your account, and
 					verification needs one to compare against. If you do have another
