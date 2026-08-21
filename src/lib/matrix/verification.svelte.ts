@@ -30,7 +30,7 @@ import {
 	type ShowSasCallbacks,
 	type VerificationRequest
 } from "matrix-js-sdk/lib/crypto-api";
-import type { MatrixClient } from "matrix-js-sdk";
+import { Method, type MatrixClient } from "matrix-js-sdk";
 
 export type VerifyStage =
 	| "idle"
@@ -87,6 +87,30 @@ export const verify = $state({
 	 */
 	trace: [] as string[]
 });
+
+/**
+ * The ed25519 key the *server* has recorded for one of our devices.
+ *
+ * Asked over the wire rather than read from the crypto stack's device list,
+ * because that list is populated from our own store for our own user — so a
+ * store holding the wrong keys would confidently agree with itself. This is
+ * the only view that can contradict us.
+ */
+async function serverDeviceKey(
+	client: MatrixClient,
+	userId: string,
+	deviceId: string
+): Promise<string> {
+	try {
+		const answer = await client.http.authedRequest<{
+			device_keys?: Record<string, Record<string, { keys?: Record<string, string> }>>;
+		}>(Method.Post, "/keys/query", undefined, { device_keys: { [userId]: [] } });
+		return answer.device_keys?.[userId]?.[deviceId]?.keys?.[`ed25519:${deviceId}`] ?? "";
+	} catch {
+		// No answer is not evidence of divergence, so it reads as "unknown".
+		return "";
+	}
+}
 
 /** First and last few characters — enough to compare, short enough to read. */
 function short(key: string | undefined): string {

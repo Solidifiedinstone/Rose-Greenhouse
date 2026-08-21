@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getClient } from "$lib/matrix/client.svelte";
+	import { getClient, logout } from "$lib/matrix/client.svelte";
 	import {
 		accept,
 		cancel,
@@ -31,6 +31,20 @@
 		if (!finished && !failed) void cancel();
 		else reset();
 		onclose();
+	}
+
+	/*
+	 * The only exit from diverged keys.
+	 *
+	 * A device's identity keys are fixed at registration, so a client holding
+	 * different ones for the same device id can never be verified — no amount
+	 * of comparing emoji changes that. Signing in again issues a new device id
+	 * with keys the server and every other session agree on.
+	 */
+	async function startOver() {
+		reset();
+		onclose();
+		await logout();
 	}
 
 	async function finish() {
@@ -113,6 +127,14 @@
 		{:else if verify.stage === "cancelled" || verify.stage === "error"}
 			<h2>{verify.stage === "error" ? "Verification failed" : "Verification stopped"}</h2>
 			<p class="bad">{verify.error || "It was cancelled."}</p>
+			{#if verify.keysDiverged}
+				<p>
+					This device's encryption keys don't match the server's record for it,
+					which is why a matching set of emoji is still rejected: the check at
+					the end covers the keys, not the pictures. Signing in again issues a
+					device everyone can agree on.
+				</p>
+			{/if}
 			{#if verify.trace.length}
 				<details class="trace">
 					<summary>What happened</summary>
@@ -129,7 +151,11 @@
 			{/if}
 			<div class="actions">
 				<button class="button" onclick={close}>Close</button>
-				<button class="button primary" onclick={() => start(getClient())}>Try again</button>
+				{#if verify.keysDiverged}
+					<button class="button primary" onclick={startOver}>Sign out</button>
+				{:else}
+					<button class="button primary" onclick={() => start(getClient())}>Try again</button>
+				{/if}
 			</div>
 		{:else}
 			<h2>Verify this device</h2>
@@ -156,6 +182,7 @@
 				</p>
 				<div class="actions">
 					<button class="button" onclick={close}>Close</button>
+					<button class="button primary" onclick={startOver}>Sign out</button>
 				</div>
 			{:else if verify.otherDevices === 0}
 				<p class="bad">
